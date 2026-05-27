@@ -1,5 +1,7 @@
 # Bland–Altman Agreement Analysis for Molecular Carriage Surveillance of Bacteria in Polymicrobial Samples – A Tutorial
 
+<i>Disclaimer: This page is being worked on. The page is currently incomplete and the text is somewhat rough around the edges.</i>
+
 ## Overview
 The dual-target approach uses agreement statistics to determine whether two genetic markers exhibit conditional dependence. While correlation quantifies the strength of a relationship, agreement assesses whether two methods are likely to measure the same quantity of a target [1]. This distinction reveals whether the markers are measuring the abundance of distinct strains within a single bacterial population or instead reflecting the abundances of strains from two different bacterial populations.
 
