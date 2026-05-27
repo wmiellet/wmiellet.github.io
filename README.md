@@ -14,6 +14,7 @@ We distinguish between two types of agreement plots: the population-specific agr
 
 ### population-specific agreement plot
 [Text].
+<iframe src="plots/conditional_dependence_plot.html.html" width="100%" height="600" frameborder="0"></iframe>
 
 ### serotyping agreement plot
 [Text].
