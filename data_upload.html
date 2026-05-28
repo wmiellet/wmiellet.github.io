@@ -14,7 +14,7 @@
     </style>
 </head>
 <body>
-    <h1>Bland‑Altman Plot (Cq Values) v4.0</h1>
+    <h1>Bland‑Altman Plot (Cq Values) v5.0 </h1>
     <p>Upload a CSV with a header. The first two columns must be numeric Cq values.</p>
 
     <input type="file" id="csvFile" accept=".csv" />
@@ -73,6 +73,24 @@
             }
         })();
 
+        // ---- Helper: decode file to UTF-8 string ----
+        async function readFileAsUTF8(file) {
+            const buffer = await file.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+
+            // Check for BOM (Byte Order Mark)
+            if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) {
+                // UTF-16 LE
+                return new TextDecoder('utf-16le').decode(bytes);
+            } else if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) {
+                // UTF-16 BE
+                return new TextDecoder('utf-16be').decode(bytes);
+            } else {
+                // Assume UTF-8 (or ASCII)
+                return new TextDecoder('utf-8').decode(bytes);
+            }
+        }
+
         // ---- Handle CSV upload ----
         fileInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
@@ -84,17 +102,17 @@
             }
 
             try {
-                showProgress(10, 'Reading file…');
-                const csvText = await file.text();
+                showProgress(10, 'Reading file and converting encoding…');
+                // Convert to clean UTF-8 string (handles UTF-16)
+                const csvText = await readFileAsUTF8(file);
 
-                showProgress(40, 'Sending CSV to R…');
+                showProgress(40, 'Sending to R…');
+                // Write decoded UTF-8 string to virtual filesystem
                 await webR.FS.writeFile('/home/data.csv', csvText);
 
-                showProgress(60, 'Processing data and generating plot…');
-                // Clear old plot
+                showProgress(60, 'Processing and generating plot…');
                 plotCont.innerHTML = '';
 
-                // ---- R: read CSV, rename columns, compute Bland‑Altman, save plot ----
                 await webR.evalR(`
                     # Read CSV with data.table
                     dt <- fread("/home/data.csv", header = TRUE)
@@ -113,7 +131,6 @@
                     upper_loa <- avg_diff + 1.96 * sd_diff
                     lower_loa <- avg_diff - 1.96 * sd_diff
 
-                    # Create plot with plotly
                     p <- plot_ly(data = dt, x = ~means, y = ~diffs,
                                  type = 'scatter', mode = 'markers',
                                  marker = list(size = 6), name = 'Differences') %>%
@@ -130,16 +147,14 @@
                                 xaxis = list(title = 'Mean of Method1 and Method2'),
                                 yaxis = list(title = 'Difference (Method1 − Method2)'))
 
-                    # Save self‑contained HTML
                     htmlwidgets::saveWidget(p, "/home/plot.html", selfcontained = TRUE)
                 `);
 
-                showProgress(90, 'Loading interactive chart…');
+                showProgress(90, 'Loading chart…');
                 const plotHtmlRaw = await webR.FS.readFile('/home/plot.html', { encoding: 'utf8' });
                 const plotHtml = typeof plotHtmlRaw === 'string' ? plotHtmlRaw :
                                  new TextDecoder().decode(plotHtmlRaw);
 
-                // Embed in iframe
                 const iframe = document.createElement('iframe');
                 iframe.srcdoc = plotHtml;
                 iframe.style.width = '100%';
