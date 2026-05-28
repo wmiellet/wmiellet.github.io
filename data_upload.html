@@ -2,70 +2,28 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bland‑Altman with R (webR)</title>
+    <title>Bland‑Altman Plot (Cq Values)</title>
     <style>
         body { font-family: sans-serif; padding: 20px; }
-        .hidden { display: none; }
-        #controls { margin: 20px 0; }
-        select { margin-left: 10px; }
-        button { padding: 6px 14px; cursor: pointer; }
-
-        /* Progress bar styling */
-        #progressContainer {
-            width: 100%;
-            max-width: 500px;
-            margin: 15px 0;
-        }
-        .progress-bg {
-            background: #e0e0e0;
-            border-radius: 6px;
-            height: 28px;
-            overflow: hidden;
-        }
-        .progress-fill {
-            width: 0%;
-            height: 100%;
-            background: linear-gradient(90deg, #4CAF50, #8BC34A);
-            border-radius: 6px;
-            transition: width 0.4s ease;
-            text-align: center;
-            color: white;
-            line-height: 28px;
-            font-weight: bold;
-            font-size: 14px;
-            white-space: nowrap;
-        }
-        #statusMessage {
-            margin: 10px 0;
-            color: #555;
-            font-style: italic;
-        }
-        #plotContainer iframe {
-            width: 100%;
-            height: 600px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
+        #progressContainer { width: 100%; max-width: 500px; margin: 15px 0; display: none; }
+        .progress-bg { background: #e0e0e0; border-radius: 6px; height: 28px; overflow: hidden; }
+        .progress-fill { width: 0%; height: 100%; background: #4CAF50; border-radius: 6px;
+                         text-align: center; color: white; line-height: 28px; font-weight: bold; }
+        #statusMsg { margin: 10px 0; color: #555; font-style: italic; }
+        #plotContainer iframe { width: 100%; height: 600px; border: 1px solid #ddd; border-radius: 4px; }
     </style>
 </head>
 <body>
-    <h1>Bland‑Altman Plot from CSV (Powered by R)</h1>
-    <p>Upload a CSV with at least two numeric columns. The R engine runs entirely in your browser.</p>
+    <h1>Bland‑Altman Plot (Cq Values) v4.0</h1>
+    <p>Upload a CSV with a header. The first two columns must be numeric Cq values.</p>
 
     <input type="file" id="csvFile" accept=".csv" />
 
-    <!-- Progress bar (hidden initially) -->
-    <div id="progressContainer" class="hidden">
+    <div id="progressContainer">
         <div class="progress-bg">
             <div id="progressBar" class="progress-fill" style="width: 0%;">0%</div>
         </div>
-        <div id="statusMessage"></div>
-    </div>
-
-    <div id="controls" class="hidden">
-        <label>Method A column: <select id="colA"></select></label>
-        <label style="margin-left:20px;">Method B column: <select id="colB"></select></label>
-        <button id="plotBtn" style="margin-left:20px;">Generate Plot</button>
+        <div id="statusMsg"></div>
     </div>
 
     <div id="plotContainer"></div>
@@ -73,193 +31,127 @@
     <script type="module">
         import { WebR } from 'https://webr.r-wasm.org/v0.4.0/webr.mjs';
 
-        // ---- DOM elements ----
-        const fileInput      = document.getElementById('csvFile');
-        const controlsDiv    = document.getElementById('controls');
-        const colASelect     = document.getElementById('colA');
-        const colBSelect     = document.getElementById('colB');
-        const plotBtn        = document.getElementById('plotBtn');
-        const plotContainer  = document.getElementById('plotContainer');
-        const progressContainer = document.getElementById('progressContainer');
-        const progressBar    = document.getElementById('progressBar');
-        const statusMessage  = document.getElementById('statusMessage');
+        const fileInput   = document.getElementById('csvFile');
+        const progBar     = document.getElementById('progressBar');
+        const statusMsg   = document.getElementById('statusMsg');
+        const progCont    = document.getElementById('progressContainer');
+        const plotCont    = document.getElementById('plotContainer');
 
-        // ---- Progress helpers ----
-        function showProgress() {
-            progressContainer.classList.remove('hidden');
-        }
-        function setProgress(percent, message) {
-            progressBar.style.width = percent + '%';
-            progressBar.textContent = percent + '%';
-            statusMessage.textContent = message || '';
+        function showProgress(pct, msg) {
+            progCont.style.display = 'block';
+            progBar.style.width = pct + '%';
+            progBar.textContent = pct + '%';
+            statusMsg.textContent = msg || '';
         }
         function hideProgress() {
-            setTimeout(() => {
-                progressContainer.classList.add('hidden');
-            }, 1200);
+            setTimeout(() => { progCont.style.display = 'none'; }, 1200);
         }
 
-        // ---- WebR instance ----
         const webR = new WebR();
-        let webRReady = false;
-        let currentFileName = null;
+        let Rready = false;
 
-        // ---- Initialise R (with error handling) ----
-        async function initR() {
-            showProgress();
-            setProgress(5, 'Starting R environment…');
+        // ---- Initialise R ----
+        (async () => {
             try {
+                showProgress(5, 'Starting R…');
                 await webR.init();
-                setProgress(20, 'R core ready. Installing required packages (plotly, readr)…');
-                await webR.evalR('webr::install(c("plotly", "readr"))');
-                setProgress(80, 'Packages installed. Setting up libraries…');
-                await webR.evalR('library(plotly); library(readr)');
-                webRReady = true;
-                setProgress(100, 'R ready. Please upload a CSV file.');
-            } catch (err) {
-                setProgress(0, 'Failed to initialise R: ' + err.message);
-                console.error(err);
-                webRReady = false;
+
+                showProgress(20, 'Installing data.table and plotly…');
+                await webR.evalR('webr::install(c("data.table", "plotly"))');
+
+                showProgress(80, 'Loading libraries…');
+                await webR.evalR('library(data.table); library(plotly)');
+
+                Rready = true;
+                showProgress(100, 'Ready. Please upload a CSV file.');
+            } catch (e) {
+                showProgress(0, 'R init failed: ' + e.message);
+                console.error(e);
+                Rready = false;
             } finally {
                 hideProgress();
             }
-        }
+        })();
 
-        initR();
-
-        // ---- Handle CSV upload (FIXED) ----
+        // ---- Handle CSV upload ----
         fileInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
 
-            if (!webRReady) {
-                alert('The R environment is still loading. Please wait and try again.');
+            if (!Rready) {
+                alert('R is not ready. Please wait and try again.');
                 return;
             }
 
-            // Reset progress for upload step
-            progressContainer.classList.remove('hidden');
-            setProgress(0, 'Starting CSV processing…');
-
             try {
-                setProgress(10, 'Reading file…');
+                showProgress(10, 'Reading file…');
                 const csvText = await file.text();
 
-                setProgress(40, 'Sending CSV to R…');
+                showProgress(40, 'Sending CSV to R…');
                 await webR.FS.writeFile('/home/data.csv', csvText);
 
-                setProgress(55, 'Detecting numeric columns…');
-                const colNamesEval = await webR.evalR(
-                    'readr::read_csv("/home/data.csv", n_max = 0) |> names()'
-                );
-                const colNames = (await colNamesEval.toArray())
-                    .map(v => v?.values?.[0] ?? '')
-                    .filter(Boolean);
+                showProgress(60, 'Processing data and generating plot…');
+                // Clear old plot
+                plotCont.innerHTML = '';
 
-                const numColsEval = await webR.evalR(
-                    'df <- suppressMessages(readr::read_csv("/home/data.csv", show_col_types = FALSE)); ' +
-                    'num_cols <- names(df)[sapply(df, is.numeric)]; ' +
-                    'num_cols'
-                );
-                const numCols = (await numColsEval.toArray())
-                    .map(v => v?.values?.[0] ?? '')
-                    .filter(Boolean);
-
-                if (numCols.length < 2) {
-                    throw new Error('The CSV must contain at least two numeric columns.');
-                }
-
-                // Populate dropdowns
-                colASelect.innerHTML = '';
-                colBSelect.innerHTML = '';
-                numCols.forEach(col => {
-                    colASelect.add(new Option(col, col));
-                    colBSelect.add(new Option(col, col));
-                });
-                if (numCols.length >= 2) {
-                    colASelect.value = numCols[0];
-                    colBSelect.value = numCols[1];
-                }
-
-                controlsDiv.classList.remove('hidden');
-                currentFileName = '/home/data.csv';
-
-                setProgress(100, 'Columns loaded. Select Method A and B, then click Generate Plot.');
-            } catch (err) {
-                console.error(err);
-                setProgress(0, 'Error: ' + (err.message || 'Unable to process CSV.'));
-                alert('Failed to process CSV: ' + (err.message || 'Unknown error'));
-            } finally {
-                hideProgress();
-            }
-        });
-
-        // ---- Generate Bland‑Altman plot ----
-        plotBtn.addEventListener('click', async () => {
-            if (!webRReady || !currentFileName) return;
-            const colA = colASelect.value;
-            const colB = colBSelect.value;
-            if (!colA || !colB) return;
-
-            showProgress();
-            setProgress(92, 'Generating Bland‑Altman plot…');
-            plotContainer.innerHTML = '';
-
-            const colAQuoted = JSON.stringify(colA);
-            const colBQuoted = JSON.stringify(colB);
-
-            try {
+                // ---- R: read CSV, rename columns, compute Bland‑Altman, save plot ----
                 await webR.evalR(`
-                    df <- suppressMessages(readr::read_csv("${currentFileName}", show_col_types = FALSE))
-                    method1 <- df[[${colAQuoted}]]
-                    method2 <- df[[${colBQuoted}]]
-                    
-                    keep <- complete.cases(method1, method2)
-                    method1 <- method1[keep]
-                    method2 <- method2[keep]
-                    
-                    means  <- (method1 + method2) / 2
-                    diffs  <- method1 - method2
-                    avg_diff <- mean(diffs)
-                    sd_diff  <- sd(diffs)
+                    # Read CSV with data.table
+                    dt <- fread("/home/data.csv", header = TRUE)
+
+                    # Assume first two columns are the Cq values
+                    setnames(dt, c("Method1", "Method2"), 1:2)
+
+                    # Remove rows with missing values
+                    dt <- na.omit(dt[, .(Method1, Method2)])
+
+                    # Bland‑Altman calculations
+                    dt[, means := (Method1 + Method2) / 2]
+                    dt[, diffs := Method1 - Method2]
+                    avg_diff <- dt[, mean(diffs)]
+                    sd_diff  <- dt[, sd(diffs)]
                     upper_loa <- avg_diff + 1.96 * sd_diff
                     lower_loa <- avg_diff - 1.96 * sd_diff
-                    
-                    p <- plot_ly(x = means, y = diffs, type = 'scatter', mode = 'markers',
+
+                    # Create plot with plotly
+                    p <- plot_ly(data = dt, x = ~means, y = ~diffs,
+                                 type = 'scatter', mode = 'markers',
                                  marker = list(size = 6), name = 'Differences') %>%
-                      add_lines(x = range(means), y = avg_diff,
-                                line = list(color = 'blue', width = 2),
-                                name = sprintf('Mean diff = %.3f', avg_diff)) %>%
-                      add_lines(x = range(means), y = upper_loa,
-                                line = list(dash = 'dash', color = 'red', width = 1.5),
-                                name = sprintf('Upper LOA = %.3f', upper_loa)) %>%
-                      add_lines(x = range(means), y = lower_loa,
-                                line = list(dash = 'dash', color = 'red', width = 1.5),
-                                name = sprintf('Lower LOA = %.3f', lower_loa)) %>%
-                      layout(title = paste('Bland‑Altman Plot:', ${colAQuoted}, 'vs', ${colBQuoted}),
-                             xaxis = list(title = paste('Mean of', ${colAQuoted}, 'and', ${colBQuoted})),
-                             yaxis = list(title = paste('Difference (', ${colAQuoted}, '−', ${colBQuoted}, ')')))
-                    
+                         add_lines(x = range(dt$means), y = avg_diff,
+                                   line = list(color = 'blue', width = 2),
+                                   name = sprintf('Mean diff = %.3f', avg_diff)) %>%
+                         add_lines(x = range(dt$means), y = upper_loa,
+                                   line = list(dash = 'dash', color = 'red', width = 1.5),
+                                   name = sprintf('Upper LOA = %.3f', upper_loa)) %>%
+                         add_lines(x = range(dt$means), y = lower_loa,
+                                   line = list(dash = 'dash', color = 'red', width = 1.5),
+                                   name = sprintf('Lower LOA = %.3f', lower_loa)) %>%
+                         layout(title = 'Bland‑Altman Plot (Cq values)',
+                                xaxis = list(title = 'Mean of Method1 and Method2'),
+                                yaxis = list(title = 'Difference (Method1 − Method2)'))
+
+                    # Save self‑contained HTML
                     htmlwidgets::saveWidget(p, "/home/plot.html", selfcontained = TRUE)
                 `);
 
+                showProgress(90, 'Loading interactive chart…');
                 const plotHtmlRaw = await webR.FS.readFile('/home/plot.html', { encoding: 'utf8' });
-                const plotHtml = typeof plotHtmlRaw === 'string'
-                    ? plotHtmlRaw
-                    : new TextDecoder().decode(plotHtmlRaw);
+                const plotHtml = typeof plotHtmlRaw === 'string' ? plotHtmlRaw :
+                                 new TextDecoder().decode(plotHtmlRaw);
 
+                // Embed in iframe
                 const iframe = document.createElement('iframe');
                 iframe.srcdoc = plotHtml;
                 iframe.style.width = '100%';
                 iframe.style.height = '600px';
                 iframe.style.border = 'none';
-                plotContainer.appendChild(iframe);
+                plotCont.appendChild(iframe);
 
-                setProgress(100, 'Plot ready!');
+                showProgress(100, 'Plot ready!');
             } catch (err) {
                 console.error(err);
-                setProgress(0, 'Error generating plot: ' + err.message);
-                alert('Plot generation failed: ' + err.message);
+                showProgress(0, 'Error: ' + err.message);
+                alert('Processing failed: ' + err.message);
             } finally {
                 hideProgress();
             }
