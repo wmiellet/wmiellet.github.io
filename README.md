@@ -22,6 +22,9 @@ We distinguish between two types of agreement plots: the population-specific agr
 Figure 1: [Legend text].
 [Text]
 
+<iframe src="https://wmiellet.github.io/plot2.html" width="100%" height="350" frameborder="0"></iframe>
+Figure 2: [Legend text].
+
 ### serotyping agreement plot
 [Text].
 
