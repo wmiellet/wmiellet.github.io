@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Bland‑Altman with R (webR)</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        .hidden { display: none; }
+        #controls { margin: 20px 0; }
+        select { margin-left: 10px; }
+        #status { margin: 15px 0; font-style: italic; color: #555; }
+        #plotContainer iframe { width: 100%; height: 600px; border: 1px solid #ddd; border-radius: 4px; }
+        button { padding: 6px 14px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Bland‑Altman Plot from CSV (Powered by R)</h1>
+    <p>Upload a CSV with at least two numeric columns. The R engine runs entirely in your browser.</p>
+
+    <input type="file" id="csvFile" accept=".csv" />
+    <div id="controls" class="hidden">
+        <label>Method A column: <select id="colA"></select></label>
+        <label style="margin-left:20px;">Method B column: <select id="colB"></select></label>
+        <button id="plotBtn" style="margin-left:20px;">Generate Plot</button>
+    </div>
+    <div id="status">Loading R environment… (may take a few seconds on first visit)</div>
+    <div id="plotContainer"></div>
+
+    <script type="module">
+        import { WebR } from 'https://webr.r-wasm.org/v0.4.0/webr.mjs';
+
+        // ---- DOM elements ----
+        const fileInput   = document.getElementById('csvFile');
+        const controlsDiv = document.getElementById('controls');
+        const colASelect  = document.getElementById('colA');
+        const colBSelect  = document.getElementById('colB');
+        const plotBtn     = document.getElementById('plotBtn');
+        const statusDiv   = document.getElementById('status');
+        const plotContainer = document.getElementById('plotContainer');
+
+        // ---- WebR instance ----
+        const webR = new WebR();
+        let webRReady = false;
+        let currentFileName = null;  // Name of uploaded CSV on virtual FS
+
+        // ---- Initialise R ----
+        async function initR() {
+            statusDiv.textContent = 'Starting R…';
+            await webR.init();
+            statusDiv.textContent = 'R ready. Installing required packages (plotly, readr)…';
+            // Install packages from webR's package repository
+            await webR.evalR('webr::install(c("plotly", "readr"))');
+            await webR.evalR('library(plotly); library(readr)');
+            webRReady = true;
+            statusDiv.textContent = 'R ready. Please upload a CSV file.';
+        }
+        initR().catch(err => {
+            statusDiv.textContent = 'Failed to initialise R: ' + err.message;
+            console.error(err);
+        });
+
+        // ---- Handle CSV upload ----
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file || !webRReady) return;
+
+            statusDiv.textContent = 'Reading CSV…';
+            const csvText = await file.text();
+
+            // Write CSV to R's virtual filesystem
+            await webR.FS.writeFile('/home/data.csv', csvText);
+
+            // Read header to get column names
+            const colNamesEval = await webR.evalR(
+                'readr::read_csv("/home/data.csv", n_max = 0) |> names()'
+            );
+            const colNames = (await colNamesEval.toArray()).map(v => v?.values?.[0] ?? '').filter(Boolean);
+
+            // Filter to numeric columns only (using a quick scan in R)
+            const numColsEval = await webR.evalR(
+                'df <- suppressMessages(readr::read_csv("/home/data.csv", show_col_types = FALSE)); ' +
+                'num_cols <- names(df)[sapply(df, is.numeric)]; ' +
+                'num_cols'
+            );
+            const numCols = (await numColsEval.toArray()).map(v => v?.values?.[0] ?? '').filter(Boolean);
+
+            if (numCols.length < 2) {
+                alert('The CSV must contain at least two numeric columns.');
+                return;
+            }
+
+            // Populate dropdowns
+            colASelect.innerHTML = '';
+            colBSelect.innerHTML = '';
+            numCols.forEach(col => {
+                colASelect.add(new Option(col, col));
+                colBSelect.add(new Option(col, col));
+            });
+            if (numCols.length >= 2) {
+                colASelect.value = numCols[0];
+                colBSelect.value = numCols[1];
+            }
+            controlsDiv.classList.remove('hidden');
+            currentFileName = '/home/data.csv';
+            statusDiv.textContent = 'Columns loaded. Select Method A and B, then click Generate Plot.';
+        });
+
+        // ---- Generate Bland‑Altman plot ----
+        plotBtn.addEventListener('click', async () => {
+            if (!webRReady || !currentFileName) return;
+            const colA = colASelect.value;
+            const colB = colBSelect.value;
+            if (!colA || !colB) return;
+
+            statusDiv.textContent = 'Generating Bland‑Altman plot…';
+            plotContainer.innerHTML = ''; // clear previous plot
+
+            // Escape column names for safe use in R string literals
+            const colAQuoted = JSON.stringify(colA);
+            const colBQuoted = JSON.stringify(colB);
+
+            try {
+                // Run the Bland‑Altman analysis in R
+                await webR.evalR(`
+                    df <- suppressMessages(readr::read_csv("${currentFileName}", show_col_types = FALSE))
+                    method1 <- df[[${colAQuoted}]]
+                    method2 <- df[[${colBQuoted}]]
+                    
+                    # Remove any rows with missing values
+                    keep <- complete.cases(method1, method2)
+                    method1 <- method1[keep]
+                    method2 <- method2[keep]
+                    
+                    means  <- (method1 + method2) / 2
+                    diffs  <- method1 - method2
+                    avg_diff <- mean(diffs)
+                    sd_diff  <- sd(diffs)
+                    upper_loa <- avg_diff + 1.96 * sd_diff
+                    lower_loa <- avg_diff - 1.96 * sd_diff
+                    
+                    p <- plot_ly(x = means, y = diffs, type = 'scatter', mode = 'markers',
+                                 marker = list(size = 6), name = 'Differences') %>%
+                      add_lines(x = range(means), y = avg_diff,
+                                line = list(color = 'blue', width = 2),
+                                name = sprintf('Mean diff = %.3f', avg_diff)) %>%
+                      add_lines(x = range(means), y = upper_loa,
+                                line = list(dash = 'dash', color = 'red', width = 1.5),
+                                name = sprintf('Upper LOA = %.3f', upper_loa)) %>%
+                      add_lines(x = range(means), y = lower_loa,
+                                line = list(dash = 'dash', color = 'red', width = 1.5),
+                                name = sprintf('Lower LOA = %.3f', lower_loa)) %>%
+                      layout(title = paste('Bland‑Altman Plot:', ${colAQuoted}, 'vs', ${colBQuoted}),
+                             xaxis = list(title = paste('Mean of', ${colAQuoted}, 'and', ${colBQuoted})),
+                             yaxis = list(title = paste('Difference (', ${colAQuoted}, '−', ${colBQuoted}, ')')))
+                    
+                    # Save plot as self‑contained HTML
+                    htmlwidgets::saveWidget(p, "/home/plot.html", selfcontained = TRUE)
+                `);
+
+                // Read the generated HTML from the virtual filesystem
+                const plotHtmlRaw = await webR.FS.readFile('/home/plot.html', { encoding: 'utf8' });
+                // webR.FS.readFile returns a Uint8Array when encoding is not specified;
+                // with { encoding: 'utf8' } it returns a string.
+                const plotHtml = typeof plotHtmlRaw === 'string' ? plotHtmlRaw : new TextDecoder().decode(plotHtmlRaw);
+
+                // Create an iframe to hold the interactive plot (avoids script execution issues)
+                const iframe = document.createElement('iframe');
+                iframe.srcdoc = plotHtml;
+                iframe.style.width = '100%';
+                iframe.style.height = '600px';
+                iframe.style.border = 'none';
+                plotContainer.appendChild(iframe);
+
+                statusDiv.textContent = 'Plot ready!';
+            } catch (err) {
+                statusDiv.textContent = 'Error generating plot: ' + err.message;
+                console.error(err);
+            }
+        });
+    </script>
+</body>
+</html>
