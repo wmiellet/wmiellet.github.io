@@ -126,58 +126,73 @@
         });
 
         // ---- Handle CSV upload ----
-        fileInput.addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file || !webRReady) return;
+fileInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
 
-            showProgress();
-            setProgress(85, 'Reading CSV…');
-            const csvText = await file.text();
+    // If R isn't ready yet, warn and do nothing
+    if (!webRReady) {
+        alert('The R environment is still loading. Please wait a moment and try again.');
+        return;
+    }
 
-            // Write CSV to R's virtual filesystem
-            await webR.FS.writeFile('/home/data.csv', csvText);
+    // Reset and show progress
+    progressContainer.classList.remove('hidden');
+    setProgress(0, 'Starting CSV processing…');
 
-            // Read column names
-            const colNamesEval = await webR.evalR(
-                'readr::read_csv("/home/data.csv", n_max = 0) |> names()'
-            );
-            const colNames = (await colNamesEval.toArray())
-                .map(v => v?.values?.[0] ?? '')
-                .filter(Boolean);
+    try {
+        setProgress(10, 'Reading file…');
+        const csvText = await file.text();
 
-            // Filter numeric columns
-            const numColsEval = await webR.evalR(
-                'df <- suppressMessages(readr::read_csv("/home/data.csv", show_col_types = FALSE)); ' +
-                'num_cols <- names(df)[sapply(df, is.numeric)]; ' +
-                'num_cols'
-            );
-            const numCols = (await numColsEval.toArray())
-                .map(v => v?.values?.[0] ?? '')
-                .filter(Boolean);
+        setProgress(40, 'Sending CSV to R…');
+        await webR.FS.writeFile('/home/data.csv', csvText);
 
-            if (numCols.length < 2) {
-                alert('The CSV must contain at least two numeric columns.');
-                setProgress(0, 'Invalid CSV. Choose a file with two or more numeric columns.');
-                hideProgress();
-                return;
-            }
+        setProgress(55, 'Detecting numeric columns…');
+        const colNamesEval = await webR.evalR(
+            'readr::read_csv("/home/data.csv", n_max = 0) |> names()'
+        );
+        const colNames = (await colNamesEval.toArray())
+            .map(v => v?.values?.[0] ?? '')
+            .filter(Boolean);
 
-            // Populate dropdowns
-            colASelect.innerHTML = '';
-            colBSelect.innerHTML = '';
-            numCols.forEach(col => {
-                colASelect.add(new Option(col, col));
-                colBSelect.add(new Option(col, col));
-            });
-            if (numCols.length >= 2) {
-                colASelect.value = numCols[0];
-                colBSelect.value = numCols[1];
-            }
-            controlsDiv.classList.remove('hidden');
-            currentFileName = '/home/data.csv';
-            setProgress(90, 'Columns loaded. Select Method A and B, then click Generate Plot.');
-            hideProgress();
+        const numColsEval = await webR.evalR(
+            'df <- suppressMessages(readr::read_csv("/home/data.csv", show_col_types = FALSE)); ' +
+            'num_cols <- names(df)[sapply(df, is.numeric)]; ' +
+            'num_cols'
+        );
+        const numCols = (await numColsEval.toArray())
+            .map(v => v?.values?.[0] ?? '')
+            .filter(Boolean);
+
+        if (numCols.length < 2) {
+            throw new Error('The CSV must contain at least two numeric columns.');
+        }
+
+        // Populate dropdowns
+        colASelect.innerHTML = '';
+        colBSelect.innerHTML = '';
+        numCols.forEach(col => {
+            colASelect.add(new Option(col, col));
+            colBSelect.add(new Option(col, col));
         });
+        if (numCols.length >= 2) {
+            colASelect.value = numCols[0];
+            colBSelect.value = numCols[1];
+        }
+
+        controlsDiv.classList.remove('hidden');
+        currentFileName = '/home/data.csv';
+
+        setProgress(100, 'Columns loaded. Select Method A and B, then click Generate Plot.');
+    } catch (err) {
+        // If anything fails, show the error and reset the bar
+        console.error(err);
+        setProgress(0, 'Error: ' + (err.message || 'Unable to process CSV.'));
+        alert('Failed to process CSV: ' + (err.message || 'Unknown error'));
+    } finally {
+        hideProgress();   // Clean up after success or error
+    }
+});
 
         // ---- Generate Bland‑Altman plot ----
         plotBtn.addEventListener('click', async () => {
