@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bland‑Altman Plot & ICC (Cq Values) v17.0</title>
+    <title>Bland‑Altman Plot & ICC (Cq Values) v18.0 </title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -13,10 +13,11 @@
         #statusMsg { margin: 10px 0; color: #555; font-style: italic; }
         #chart { width: 100%; height: 350px; }
         #iccResult { margin-top: 20px; font-size: 14px; color: #666; }
+        #kappaResult { margin-top: 5px; font-size: 14px; color: #666; }
     </style>
 </head>
 <body>
-    <h1>Bland‑Altman Plot (Cq Values) v17.0 </h1>
+    <h1>Bland‑Altman Plot (Cq Values) v18.0 </h1>
     <p>Upload a CSV with a header. The first two columns must be numeric Cq values. (Row names are handled automatically.)</p>
 
     <input type="file" id="csvFile" accept=".csv" />
@@ -30,6 +31,7 @@
 
     <div id="chart"></div>
     <div id="iccResult"></div>
+    <div id="kappaResult"></div>
 
     <script type="module">
         import { WebR } from 'https://webr.r-wasm.org/v0.4.0/webr.mjs';
@@ -40,6 +42,7 @@
         const progCont    = document.getElementById('progressContainer');
         const chartDiv    = document.getElementById('chart');
         const iccDiv      = document.getElementById('iccResult');
+        const kappaDiv    = document.getElementById('kappaResult');
 
         function showProgress(pct, msg) {
             progCont.style.display = 'block';
@@ -126,6 +129,7 @@
                 showProgress(60, 'Computing Bland‑Altman statistics (Cq < 40)…');
                 chartDiv.innerHTML = '';
                 iccDiv.innerHTML = '';
+                kappaDiv.innerHTML = '';
 
                 // ----- Bland‑Altman calculations -----
                 const result = await webR.evalR(`
@@ -235,6 +239,51 @@
                 iccText = (await iccResult.toString()).trim();
                 if (iccText.startsWith('"')) iccText = iccText.slice(1, -1);  // remove extra quotes
 
+                // ----- Cohen's kappa calculation (NEW) -----
+                showProgress(78, 'Computing Cohen\'s kappa…');
+                const kappaResult = await webR.evalR(`
+                    library(data.table)
+
+                    dt <- fread("/home/data.csv", header = TRUE)
+                    cn <- names(dt)
+                    if (ncol(dt) >= 3 && (cn[1] == "" || cn[1] == "V1")) {
+                        cols_use <- 2:3
+                    } else {
+                        cols_use <- 1:2
+                    }
+                    dt <- dt[, ..cols_use]
+                    setnames(dt, c("Method1", "Method2"))
+                    dt <- na.omit(dt)
+
+                    # Binary classification: <40 = positive (1), >=40 = negative (0)
+                    dt[, pos1 := ifelse(Method1 < 40, 1, 0)]
+                    dt[, pos2 := ifelse(Method2 < 40, 1, 0)]
+
+                    tab <- table(factor(dt$pos1, levels = c(0,1)),
+                                 factor(dt$pos2, levels = c(0,1)))
+
+                    n <- sum(tab)
+                    po <- sum(diag(tab)) / n
+                    row_margins <- rowSums(tab) / n
+                    col_margins <- colSums(tab) / n
+                    pe <- sum(row_margins * col_margins)
+
+                    kappa <- (po - pe) / (1 - pe)
+
+                    se <- sqrt((po * (1 - po)) / (n * (1 - pe)^2))
+                    ci_lower <- kappa - 1.96 * se
+                    ci_upper <- kappa + 1.96 * se
+
+                    paste0("Cohen's kappa (binary: <40 positive) = ",
+                           round(kappa, 3),
+                           " (95% CI: ",
+                           round(max(ci_lower, -1), 3), " \u2013 ",
+                           round(min(ci_upper, 1), 3), ")")
+                `);
+
+                let kappaText = (await kappaResult.toString()).trim();
+                if (kappaText.startsWith('"')) kappaText = kappaText.slice(1, -1);
+
                 showProgress(80, 'Rendering plot…');
 
                 // ---- Separate groups ----
@@ -327,15 +376,17 @@
 
                 Plotly.newPlot('chart', [traceGreen, traceGrey, ...lines], layout);
 
-                // Display ICC result (or error message)
+                // Display ICC and kappa results
                 iccDiv.textContent = iccText;
+                kappaDiv.textContent = kappaText;
 
-                showProgress(100, 'Plot and ICC ready!');
+                showProgress(100, 'Plot, ICC and kappa ready!');
             } catch (err) {
                 console.error(err);
                 showProgress(0, 'Error: ' + err.message);
                 alert('Processing failed: ' + err.message);
                 iccDiv.textContent = '';
+                kappaDiv.textContent = '';
             } finally {
                 hideProgress();
             }
