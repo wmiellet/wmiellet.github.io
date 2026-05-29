@@ -28,7 +28,7 @@
     </style>
 </head>
 <body>
-    <h1>Serotype Ranking & Bland‑Altman (multi‑rank overlay) v0.7 </h1>
+    <h1>Serotype Ranking & Bland‑Altman (multi‑rank overlay) v0.8 </h1>
     <p>Upload CSV (first column = sample ID). Assays with Ct ≥ 40 are ignored.<br>
     Choose assays to exclude, then rank. Select a reference assay, a primary rank for BA statistics, and optionally overlay other ranks as coloured points.</p>
 
@@ -238,50 +238,52 @@
             }
         });
 
-        // Ranking function – fixed R vector construction
+        // Ranking function – embed currentData as JSON literal
         async function runRanking() {
             if (!currentData) return;
             const excluded = Array.from(document.querySelectorAll('.excludeCheck:checked')).map(cb => cb.value);
-            // Build R character vector: c("ST1","ST3",...)
             const excludedR = excluded.length ? `c(${excluded.map(s => `"${s.replace(/"/g, '\\"')}"`).join(', ')})` : 'c()';
+            // Serialize currentData to a JSON string, escape backticks and backslashes for embedding in template literal
+            const dataJson = JSON.stringify(currentData).replace(/\\/g, '\\\\').replace(/`/g, '\\`');
             showProgress(40, 'Ranking serotypes (Ct<40 only)...');
             try {
                 const script = `
-                    (function(data, excluded) {
-                        library(data.table)
-                        library(jsonlite)
-                        dt <- as.data.table(data)
-                        assay_cols <- setdiff(names(dt)[-1], excluded)
-                        dt[, (assay_cols) := lapply(.SD, as.numeric), .SDcols = assay_cols]
-                        n_ranks <- 5
-                        cutoff <- 40
-                        cq_cols <- paste0("rank", 1:n_ranks, "_Cq")
-                        name_cols <- paste0("rank", 1:n_ranks, "_assay")
-                        result_cq <- matrix(NA_real_, nrow = nrow(dt), ncol = n_ranks)
-                        result_name <- matrix("-", nrow = nrow(dt), ncol = n_ranks)
-                        for (i in 1:nrow(dt)) {
-                            vals <- unlist(dt[i, ..assay_cols])
-                            names <- assay_cols
-                            valid <- !is.na(vals) & vals < cutoff
-                            if (any(valid)) {
-                                valid_vals <- vals[valid]
-                                valid_names <- names[valid]
-                                ord <- order(valid_vals)
-                                top_vals <- valid_vals[ord]
-                                top_names <- valid_names[ord]
-                                k <- min(n_ranks, length(top_vals))
-                                result_cq[i, 1:k] <- top_vals[1:k]
-                                result_name[i, 1:k] <- top_names[1:k]
-                            }
+                    library(data.table)
+                    library(jsonlite)
+                    data_json <- '${dataJson}'
+                    data <- fromJSON(data_json)
+                    dt <- as.data.table(data)
+                    excluded <- ${excludedR}
+                    assay_cols <- setdiff(names(dt)[-1], excluded)
+                    dt[, (assay_cols) := lapply(.SD, as.numeric), .SDcols = assay_cols]
+                    n_ranks <- 5
+                    cutoff <- 40
+                    cq_cols <- paste0("rank", 1:n_ranks, "_Cq")
+                    name_cols <- paste0("rank", 1:n_ranks, "_assay")
+                    result_cq <- matrix(NA_real_, nrow = nrow(dt), ncol = n_ranks)
+                    result_name <- matrix("-", nrow = nrow(dt), ncol = n_ranks)
+                    for (i in 1:nrow(dt)) {
+                        vals <- unlist(dt[i, ..assay_cols])
+                        names <- assay_cols
+                        valid <- !is.na(vals) & vals < cutoff
+                        if (any(valid)) {
+                            valid_vals <- vals[valid]
+                            valid_names <- names[valid]
+                            ord <- order(valid_vals)
+                            top_vals <- valid_vals[ord]
+                            top_names <- valid_names[ord]
+                            k <- min(n_ranks, length(top_vals))
+                            result_cq[i, 1:k] <- top_vals[1:k]
+                            result_name[i, 1:k] <- top_names[1:k]
                         }
-                        for (k in 1:n_ranks) {
-                            set(dt, j = cq_cols[k], value = result_cq[, k])
-                            set(dt, j = name_cols[k], value = result_name[, k])
-                        }
-                        keep_cols <- c(names(dt)[1], assay_cols, cq_cols)
-                        out_dt <- dt[, ..keep_cols]
-                        toJSON(as.data.frame(out_dt), auto_unbox = TRUE, digits = 8)
-                    })(currentData, ${excludedR})
+                    }
+                    for (k in 1:n_ranks) {
+                        set(dt, j = cq_cols[k], value = result_cq[, k])
+                        set(dt, j = name_cols[k], value = result_name[, k])
+                    }
+                    keep_cols <- c(names(dt)[1], assay_cols, cq_cols)
+                    out_dt <- dt[, ..keep_cols]
+                    toJSON(as.data.frame(out_dt), auto_unbox = TRUE, digits = 8)
                 `;
                 const result = await webR.evalR(script);
                 const jsonStr = await result.toString();
