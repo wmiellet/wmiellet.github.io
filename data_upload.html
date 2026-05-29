@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bland‑Altman Plot & ICC (Cq Values) v16.0 </title>
+    <title>Bland‑Altman Plot & ICC (Cq Values)</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -16,7 +16,7 @@
     </style>
 </head>
 <body>
-    <h1>Bland‑Altman Plot (Cq Values) v16.0 </h1>
+    <h1>Bland‑Altman Plot (Cq Values)</h1>
     <p>Upload a CSV with a header. The first two columns must be numeric Cq values. (Row names are handled automatically.)</p>
 
     <input type="file" id="csvFile" accept=".csv" />
@@ -167,51 +167,52 @@
                 const jsonStr = await result.toString();
                 const d = JSON.parse(jsonStr);
 
-                // ----- ICC calculation (with its own try/catch) -----
+                // ----- ICC calculation (now robust) -----
                 let iccText = '';
-                try {
-                    showProgress(75, 'Computing ICC…');
-                    const iccResult = await webR.evalR(`
-                        library(data.table)
+                showProgress(75, 'Computing ICC…');
+                const iccResult = await webR.evalR(`
+                    library(data.table)
 
-                        dt <- fread("/home/data.csv", header = TRUE)
-                        cn <- names(dt)
-                        if (ncol(dt) >= 3 && (cn[1] == "" || cn[1] == "V1")) {
-                            cols_use <- 2:3
-                        } else {
-                            cols_use <- 1:2
-                        }
-                        dt <- dt[, ..cols_use]
-                        setnames(dt, c("Method1", "Method2"))
-                        dt <- na.omit(dt)
-                        dt <- dt[Method1 < 40 & Method2 < 40]
+                    dt <- fread("/home/data.csv", header = TRUE)
+                    cn <- names(dt)
+                    if (ncol(dt) >= 3 && (cn[1] == "" || cn[1] == "V1")) {
+                        cols_use <- 2:3
+                    } else {
+                        cols_use <- 1:2
+                    }
+                    dt <- dt[, ..cols_use]
+                    setnames(dt, c("Method1", "Method2"))
+                    dt <- na.omit(dt)
+                    dt <- dt[Method1 < 40 & Method2 < 40]
 
+                    result <- tryCatch({
                         n <- nrow(dt)
                         if (n < 3) stop("Need at least 3 complete pairs to compute ICC.")
+                        if (sd(dt$Method1) == 0 || sd(dt$Method2) == 0)
+                            stop("One of the methods has no variability in the subset; ICC cannot be computed.")
 
-                        # Check for constant values (zero variance)
-                        if (var(dt$Method1) == 0 || var(dt$Method2) == 0)
-                            stop("One of the methods has zero variance in the subset; ICC cannot be computed.")
-
-                        dt_long <- melt(dt, id.vars = NULL, measure.vars = c("Method1", "Method2"),
+                        dt_long <- melt(dt, id.vars = NULL,
+                                        measure.vars = c("Method1", "Method2"),
                                         variable.name = "method", value.name = "value")
                         dt_long[, subject := rep(1:n, times = 2)]
 
-                        anova_model <- aov(value ~ factor(method) + factor(subject), data = dt_long)
-                        ms <- summary(anova_model)[[1]]["Mean Sq"]
-                        MS_subject <- ms[["factor(subject)"]]
-                        MS_error   <- ms[["Residuals"]]
+                        anova_model <- aov(value ~ factor(method) + factor(subject),
+                                           data = dt_long)
+                        anova_table <- summary(anova_model)[[1]]
+
+                        # Extract Mean Squares safely
+                        MS_subject <- anova_table["factor(subject)", "Mean Sq"]
+                        MS_error   <- anova_table["Residuals", "Mean Sq"]
 
                         if (MS_subject <= MS_error) {
                             ICC <- 0
-                            LCI <- 0
-                            UCI <- 0
-                            ci_note <- "(CI not reliable when ICC <= 0)"
+                            ci_text <- "ICC = 0.0000 (no positive correlation detected)"
+                            return(ci_text)
                         } else {
                             ICC <- (MS_subject - MS_error) / (MS_subject + MS_error)
 
                             df_subject <- n - 1
-                            df_error   <- (n - 1) * (2 - 1)
+                            df_error   <- (n - 1)   # for k=2, df_error = (n-1)*(k-1) = n-1
 
                             F_obs <- MS_subject / MS_error
                             F_lower <- F_obs / qf(0.975, df_subject, df_error)
@@ -219,20 +220,20 @@
 
                             LCI <- (F_lower - 1) / (F_lower + 1)
                             UCI <- (F_upper - 1) / (F_upper + 1)
-                            ci_note <- ""
-                        }
 
-                        paste0("ICC (two‑way consistency, single measure) = ",
-                               round(ICC, 4),
-                               " (95% CI: ",
-                               round(LCI, 4), " – ", round(UCI, 4), ")",
-                               ci_note)
-                    `);
-                    iccText = await iccResult.toString();
-                } catch (iccErr) {
-                    console.error('ICC calculation error:', iccErr);
-                    iccText = 'ICC calculation failed: ' + (iccErr.message || 'unknown error');
-                }
+                            paste0("ICC (two‑way consistency, single measure) = ",
+                                   round(ICC, 4),
+                                   " (95% CI: ",
+                                   round(LCI, 4), " \u2013 ", round(UCI, 4), ")")
+                        }
+                    }, error = function(e) {
+                        paste("ICC calculation failed:", e$message)
+                    })
+                    result
+                `);
+
+                iccText = (await iccResult.toString()).trim();
+                if (iccText.startsWith('"')) iccText = iccText.slice(1, -1);  // remove extra quotes
 
                 showProgress(80, 'Rendering plot…');
 
