@@ -10,7 +10,7 @@ The dual-target approach uses agreement statistics to determine whether two gene
 ## Producing an Agreement Plot
 Unlike a correlation plot, where each axis represents one genetic marker, an agreement plot readily allows one to inspect two assays for conditional independence. In an agreement plot the <i>x</i>-axis represents the mean of the two measurements (from marker A and marker B), and the <i>y</i>-axis represents the difference between them. The limits of agreement define the interval within which 95% of the differences fall . To evaluate the precision of these limits, 95% confidence intervals can be added. If the limits of agreement exceed a predefined acceptable range, the two genetic markers cannot be considered reliable for detecting a single bacterial species with sufficient confidence. As a rule of thumb, we recommend a predefined acceptable limit of 2 Cq (equivalent to a 4 fold difference in concentration) [2].
 
-## Assumptions of the Method
+### Assumptions of the Method
 The proposed method rests on two assumptions: (I) the differences between genetic marker measurements are non normally distributed, and (II) the difference between the two markers is not proportional to the mean of the two measurements [2]. When one of the two markers exhibits reduced specificity and samples often contain strains that are positive for only one of the markers, non parametric limits of agreement should be considered [4]. When using non-parametric limits, the median difference is indicated in the agreement plot as well as the limits of agreement based on the 2.5 and 97.5th percentile.
 
 ## Types of Agreement plots
