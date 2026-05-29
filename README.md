@@ -40,11 +40,7 @@ Figure 2: [Legend text].
 [Text].
 
 ## Produce an Agreement plot with your own data!
-[Upload a CSV and create a plot directly in your browser](https://wmiellet.github.io/data_upload.html).
-
-[new version](https://wmiellet.github.io/data_upload2.html).
-
-[newer version](https://wmiellet.github.io/data_upload3.html).
+[Upload a CSV and create a plot directly in your browser](https://wmiellet.github.io/data_upload3.html).
 
 ## Limitations
 [Text].
