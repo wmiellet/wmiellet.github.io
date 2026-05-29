@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Serotype Ranking by Ct Value (WebR) v0.3 </title>
+    <title>Serotype Ranking by Ct Value (WebR) v0.4 </title>
     <style>
         body { font-family: sans-serif; padding: 20px; }
         #progressContainer { width: 100%; max-width: 500px; margin: 15px 0; display: none; }
@@ -21,10 +21,10 @@
     </style>
 </head>
 <body>
-    <h1>Serotype Ranking by Lowest Ct Value v0.3 </h1>
+    <h1>Serotype Ranking by Lowest Ct Value (Ct < 40 only) v0.4 </h1>
     <p>Upload a CSV file. The first column is ignored for ranking (e.g., sample ID / piaB). All subsequent columns are serotype assays with Ct values.<br>
-    For each row, the assay with the <strong>lowest Ct</strong> gets rank 1, second lowest rank 2, etc. (up to rank 5).<br>
-    If Ct ≥ 40 or missing, the assay name is replaced by <code>"-"</code>. The ranking only uses values < 40.</p>
+    For each row, only assays with <strong>Ct < 40</strong> are considered. The lowest Ct gets rank 1, second lowest rank 2, etc. (up to rank 5).<br>
+    If an assay has Ct ≥ 40 or is missing, it does <strong>not</strong> appear in the ranking at all. If no assay has Ct < 40, all rank entries are <code>"-"</code> (name) and <code>NA</code> (Cq).</p>
 
     <input type="file" id="csvFile" accept=".csv" />
 
@@ -150,9 +150,8 @@
                 const utf8Bytes = await decodeFileToCleanUTF8(file);
                 showProgress(30, 'Sending to R…');
                 await webR.FS.writeFile('/home/data.csv', utf8Bytes);
-                showProgress(50, 'Ranking serotypes…');
+                showProgress(50, 'Ranking serotypes (only Ct < 40)…');
 
-                // R code: ranks all columns except the first, reorders output columns, returns JSON
                 const rankingScript = `
                     dt <- fread("/home/data.csv", header = TRUE)
                     if (ncol(dt) < 2) stop("CSV must have at least 2 columns (ID + at least one assay)")
@@ -161,52 +160,53 @@
                     first_col_name <- original_names[1]
                     assay_cols <- original_names[-1]
                     
+                    # Convert assay columns to numeric
                     dt[, (assay_cols) := lapply(.SD, as.numeric), .SDcols = assay_cols]
-                    
-                    rank_assays <- function(row_vals, assay_names, n_ranks = 5, cutoff = 40) {
-                        vals <- row_vals
-                        vals[is.na(vals) | vals >= cutoff] <- Inf
-                        o <- order(vals, na.last = TRUE)
-                        top_idx <- o[seq_len(min(n_ranks, length(o)))]
-                        out_names <- rep("-", n_ranks)
-                        out_vals <- rep(NA_real_, n_ranks)
-                        for (i in seq_along(top_idx)) {
-                            out_names[i] <- assay_names[top_idx[i]]
-                            out_vals[i] <- row_vals[top_idx[i]]
-                        }
-                        list(names = out_names, values = out_vals)
-                    }
                     
                     n_ranks <- 5
                     cutoff <- 40
                     
-                    new_name_cols <- paste0("rank", 1:n_ranks, "_assay")
-                    new_val_cols  <- paste0("rank", 1:n_ranks, "_Cq")
+                    # Prepare new column names
+                    cq_cols <- paste0("rank", 1:n_ranks, "_Cq")
+                    name_cols <- paste0("rank", 1:n_ranks, "_assay")
                     
-                    assay_mat <- as.matrix(dt[, ..assay_cols])
-                    n_rows <- nrow(dt)
-                    result_names <- matrix("-", nrow = n_rows, ncol = n_ranks)
-                    result_vals <- matrix(NA_real_, nrow = n_rows, ncol = n_ranks)
+                    # Create empty result matrices
+                    result_cq <- matrix(NA_real_, nrow = nrow(dt), ncol = n_ranks)
+                    result_name <- matrix("-", nrow = nrow(dt), ncol = n_ranks)
                     
-                    for (i in 1:n_rows) {
-                        res <- rank_assays(assay_mat[i, ], assay_cols, n_ranks, cutoff)
-                        result_names[i, ] <- res$names
-                        result_vals[i, ] <- res$values
+                    # Process each row
+                    for (i in 1:nrow(dt)) {
+                        # Extract row values and names
+                        vals <- unlist(dt[i, ..assay_cols])
+                        names <- assay_cols
+                        # Keep only assays with Ct < cutoff and not NA
+                        valid <- !is.na(vals) & vals < cutoff
+                        if (any(valid)) {
+                            valid_vals <- vals[valid]
+                            valid_names <- names[valid]
+                            # Order by Ct ascending
+                            ord <- order(valid_vals)
+                            top_vals <- valid_vals[ord]
+                            top_names <- valid_names[ord]
+                            # Take up to n_ranks
+                            k <- min(n_ranks, length(top_vals))
+                            result_cq[i, 1:k] <- top_vals[1:k]
+                            result_name[i, 1:k] <- top_names[1:k]
+                        }
+                        # else: all remain NA (Cq) and "-" (name)
                     }
                     
+                    # Add new columns to data.table
                     for (k in 1:n_ranks) {
-                        set(dt, j = new_name_cols[k], value = result_names[, k])
-                        set(dt, j = new_val_cols[k], value = result_vals[, k])
+                        set(dt, j = cq_cols[k], value = result_cq[, k])
+                        set(dt, j = name_cols[k], value = result_name[, k])
                     }
                     
-                    # Reorder columns: first_col, then Cq columns 1..5, then assay columns 1..5, then original assay cols
-                    cq_cols <- new_val_cols
-                    name_cols <- new_name_cols
-                    other_cols <- assay_cols  # the original assay columns
-                    new_order <- c(first_col_name, cq_cols, name_cols, other_cols)
+                    # Reorder columns: first_col, then Cq columns, then assay name columns, then original assay cols
+                    new_order <- c(first_col_name, cq_cols, name_cols, assay_cols)
                     setcolorder(dt, new_order)
                     
-                    # Convert to JSON string
+                    # Return as JSON
                     out_list <- list(
                         data = as.data.frame(dt),
                         columns = new_order
