@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bland‑Altman Plot & ICC (Cq Values) v20.0</title>
+    <title>Bland‑Altman Plot & ICC (Cq Values) v20.1</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -26,12 +26,14 @@
         .agreement-stat { margin-top: 10px; font-size: 14px; color: #666; }
         .diagnostic-plot { width: 100%; height: 350px; margin-bottom: 20px; }
         .diagnostic-container { display: flex; flex-wrap: wrap; gap: 20px; justify-content: space-between; }
-        .diagnostic-item { flex: 1 1 30%; min-width: 300px; }
+        .diagnostic-item { flex: 1 1 45%; min-width: 300px; }
         .diagnostic-title { font-weight: bold; margin-bottom: 5px; }
+        .correlation-container { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+        .correlation-plot { flex: 1 1 400px; }
     </style>
 </head>
 <body>
-    <h1>Bland‑Altman Plot (Cq Values) v20.0</h1>
+    <h1>Bland‑Altman Plot (Cq Values) v20.1</h1>
     <p>Upload a CSV with a header. The first two columns must be numeric Cq values. (Row names are handled automatically.)</p>
 
     <input type="file" id="csvFile" accept=".csv" />
@@ -70,20 +72,29 @@
             <label><input type="checkbox" id="showGreyPoints" checked> Show single pos. & double neg.</label>
             <label><input type="checkbox" id="showZero" checked> Show zero line</label>
             <label><input type="checkbox" id="showProportionality"> Show proportionality line</label>
+            <label><input type="checkbox" id="showCorrelation" checked> Show correlation plot</label>
             <button id="toggleDiagBtn" style="margin-top:10px; width:100%;">Show diagnostic plots</button>
             <div id="statsDisplay">Upload data to see statistics.</div>
         </div>
     </div>
 
+    <!-- Correlation plot (outside diagnostics) -->
+    <div id="correlationContainer" style="display:none; margin-top:20px;">
+        <hr>
+        <h2>Correlation Plot</h2>
+        <div class="correlation-container">
+            <div class="correlation-plot">
+                <div id="xyPlot" class="diagnostic-plot"></div>
+                <div id="xyStats" style="font-size:13px; color:#555;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Diagnostics panel (normality + proportionality only) -->
     <div id="diagnosticsContainer" style="display:none; margin-top:20px;">
         <hr>
         <h2>Diagnostic Plots</h2>
         <div class="diagnostic-container">
-            <div class="diagnostic-item">
-                <div class="diagnostic-title">X‑Y Correlation</div>
-                <div id="xyPlot" class="diagnostic-plot"></div>
-                <div id="xyStats" style="font-size:13px; color:#555;"></div>
-            </div>
             <div class="diagnostic-item">
                 <div class="diagnostic-title">Normality of Differences</div>
                 <div id="normPlot" class="diagnostic-plot"></div>
@@ -121,7 +132,9 @@
         const cbGrey           = document.getElementById('showGreyPoints');
         const cbZero           = document.getElementById('showZero');
         const cbProp           = document.getElementById('showProportionality');
+        const cbCorr           = document.getElementById('showCorrelation');
         const toggleDiagBtn    = document.getElementById('toggleDiagBtn');
+        const corrContainer    = document.getElementById('correlationContainer');
         const diagContainer    = document.getElementById('diagnosticsContainer');
         const xyPlotDiv        = document.getElementById('xyPlot');
         const xyStatsDiv       = document.getElementById('xyStats');
@@ -213,8 +226,6 @@
             }
 
             const traces = [];
-
-            // Green points
             traces.push({
                 x: xGreen, y: yGreen,
                 type: 'scatter', mode: 'markers',
@@ -222,7 +233,6 @@
                 opacity: 0.8, name: 'Both < 40', showlegend: false
             });
 
-            // Grey points
             if (cbGrey.checked && xGrey.length > 0) {
                 traces.push({
                     x: xGrey, y: yGrey,
@@ -270,14 +280,9 @@
 
             const upperApr = s.bias + margin;
             const lowerApr = s.bias - margin;
-            if (cbUpperApr.checked) {
-                addLine(upperApr, 'green', 'solid', 1.5, 0.7, `Upper a priori limit = ${upperApr.toFixed(3)}`);
-            }
-            if (cbLowerApr.checked) {
-                addLine(lowerApr, 'green', 'solid', 1.5, 0.7, `Lower a priori limit = ${lowerApr.toFixed(3)}`);
-            }
+            if (cbUpperApr.checked) addLine(upperApr, 'green', 'solid', 1.5, 0.7, `Upper a priori limit = ${upperApr.toFixed(3)}`);
+            if (cbLowerApr.checked) addLine(lowerApr, 'green', 'solid', 1.5, 0.7, `Lower a priori limit = ${lowerApr.toFixed(3)}`);
 
-            // Proportionality line (diff ~ mean) from regression
             if (cbProp.checked && s.prop_slope != null) {
                 const y1 = s.prop_intercept + s.prop_slope * xMin;
                 const y2 = s.prop_intercept + s.prop_slope * xMax;
@@ -290,9 +295,7 @@
                 });
             }
 
-            if (cbZero.checked) {
-                addLine(0, 'black', 'solid', 0.5, 0.25, 'LoE');
-            }
+            if (cbZero.checked) addLine(0, 'black', 'solid', 0.5, 0.25, 'LoE');
 
             const layout = {
                 title: 'Cq agreement plot',
@@ -308,7 +311,6 @@
 
             Plotly.newPlot('chart', traces, layout);
 
-            // Update stats display
             statsDisplay.innerHTML = `
                 <span>Bias:</span> ${s.bias.toFixed(3)}<br>
                 <span>Upper LoA:</span> ${s.loa_upper.toFixed(3)}<br>
@@ -321,11 +323,9 @@
             `;
         }
 
-        // ---- Render diagnostic plots ----
-        function renderDiagnostics() {
+        // ---- Render correlation plot (separate) ----
+        function renderCorrelation() {
             if (!diagData) return;
-
-            // X-Y scatter
             const xyTrace = {
                 x: diagData.xy_x, y: diagData.xy_y,
                 type: 'scatter', mode: 'markers',
@@ -342,10 +342,14 @@
                 Pearson r = ${diagData.xy_pearson_r.toFixed(4)} (p = ${diagData.xy_pearson_p.toFixed(4)})<br>
                 Spearman ρ = ${diagData.xy_spearman_rho.toFixed(4)} (p = ${diagData.xy_spearman_p.toFixed(4)})
             `;
+        }
 
-            // Normality: histogram of differences + normal curve
+        // ---- Render diagnostics (normality + proportionality only) ----
+        function renderDiagnostics() {
+            if (!diagData) return;
+
+            // Normality
             const diffs = diagData.norm_diffs;
-            // manual histogram
             const traceHist = {
                 x: diffs,
                 type: 'histogram',
@@ -353,7 +357,6 @@
                 marker: { color: 'lightblue' },
                 name: 'Differences', showlegend: false
             };
-            // normal curve overlay
             const xRange = [Math.min(...diffs), Math.max(...diffs)];
             const xVals = [];
             const step = (xRange[1] - xRange[0]) / 100;
@@ -375,7 +378,7 @@
             });
             normStatsDiv.innerHTML = `Shapiro‑Wilk p = ${diagData.norm_shapiro_p.toFixed(4)}`;
 
-            // Proportionality: |diff| vs mean with regression
+            // Proportionality
             const propTrace = {
                 x: diagData.prop_means, y: diagData.prop_absdiffs,
                 type: 'scatter', mode: 'markers',
@@ -410,7 +413,13 @@
             if (diagVisible && diagData) renderDiagnostics();
         });
 
-        // ---- Event listeners for main plot ----
+        // ---- Correlation checkbox ----
+        cbCorr.addEventListener('change', () => {
+            corrContainer.style.display = cbCorr.checked ? 'block' : 'none';
+            if (cbCorr.checked && diagData) renderCorrelation();
+        });
+
+        // ---- Main plot controls ----
         const controls = [methodSelect, aprioriMarginIn, cbBias, cbUpperLoA, cbLowerLoA,
                           cbUpperApr, cbLowerApr, cbCI, cbGrey, cbZero, cbProp];
         controls.forEach(el => {
@@ -424,7 +433,7 @@
             });
         });
 
-        // ---- Handle CSV upload ----
+        // ---- Handle CSV upload (unchanged R logic) ----
         fileInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
@@ -443,6 +452,7 @@
                 diagVisible = false;
                 toggleDiagBtn.textContent = 'Show diagnostic plots';
                 mainContainer.style.display = 'none';
+                corrContainer.style.display = cbCorr.checked ? 'block' : 'none';
 
                 // Massive R computation: BA stats + diagnostics
                 const rawResult = await webR.evalR(`
@@ -523,25 +533,20 @@
                     loa_lo_ci_lo_mad <- as.numeric(quantile(boot_loa_lo_mad, 0.025))
                     loa_lo_ci_hi_mad <- as.numeric(quantile(boot_loa_lo_mad, 0.975))
 
-                    # ----- Proportionality (diff ~ mean) for main plot -----
                     prop_model <- lm(diff_val ~ mean_val, data = sub)
                     prop_slope <- coef(prop_model)[2]
                     prop_intercept <- coef(prop_model)[1]
                     prop_pval <- summary(prop_model)$coefficients[2,4]
 
-                    # ----- Diagnostics data -----
-                    # X-Y data (all rows)
                     xy_x <- dt$Method1
                     xy_y <- dt$Method2
                     xy_pearson <- cor.test(dt$Method1, dt$Method2, method = "pearson")
                     xy_spearman <- cor.test(dt$Method1, dt$Method2, method = "spearman")
 
-                    # Normality of differences (sub)
                     shapiro_test <- shapiro.test(sub$diff_val)
                     norm_mean <- mean(sub$diff_val)
                     norm_sd <- sd(sub$diff_val)
 
-                    # Proportionality (abs diff ~ mean)
                     sub_abs <- sub[, .(absdiff = abs(diff_val), mean_val)]
                     prop_abs_model <- lm(absdiff ~ mean_val, data = sub_abs)
                     prop_abs_slope <- coef(prop_abs_model)[2]
@@ -549,7 +554,6 @@
                     prop_abs_pval <- summary(prop_abs_model)$coefficients[2,4]
 
                     toJSON(list(
-                        # Main BA plot data
                         means_all  = dt$mean_val,
                         diffs_all  = dt$diff_val,
                         condition  = dt$condition,
@@ -574,7 +578,6 @@
                             loa_lower_ci_low = loa_lo_ci_lo_mad, loa_lower_ci_high = loa_lo_ci_hi_mad,
                             prop_slope = prop_slope, prop_intercept = prop_intercept, prop_pval = prop_pval
                         ),
-                        # Diagnostics
                         xy_x = xy_x, xy_y = xy_y,
                         xy_pearson_r = as.numeric(xy_pearson$estimate), xy_pearson_p = xy_pearson$p.value,
                         xy_spearman_rho = as.numeric(xy_spearman$estimate), xy_spearman_p = xy_spearman$p.value,
@@ -592,7 +595,6 @@
                 const jsonStr = await rawResult.toString();
                 const fullData = JSON.parse(jsonStr);
 
-                // Populate global state
                 allStats = {
                     parametric: fullData.parametric,
                     nonparametric: fullData.nonparametric,
@@ -663,7 +665,7 @@
                 iccText = (await iccRaw.toString()).trim();
                 if (iccText.startsWith('"')) iccText = iccText.slice(1, -1);
 
-                // Kappa with double-negative check
+                // Kappa
                 showProgress(78, 'Computing Cohen\'s kappa…');
                 const kappaRaw = await webR.evalR(`
                     library(data.table)
@@ -704,6 +706,9 @@
                 currentMethod = methodSelect.value;
                 renderPlot();
 
+                // Render correlation if checkbox is checked
+                if (cbCorr.checked) renderCorrelation();
+
                 showProgress(100, 'Plot, ICC and kappa ready!');
             } catch (err) {
                 console.error(err);
@@ -712,6 +717,7 @@
                 iccDiv.textContent = '';
                 kappaDiv.textContent = '';
                 mainContainer.style.display = 'none';
+                corrContainer.style.display = 'none';
             } finally {
                 hideProgress();
             }
