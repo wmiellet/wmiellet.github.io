@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Serotype Ranking + Bland‑Altman (with multi‑rank overlay)</title>
+    <title>Serotype Ranking + Bland‑Altman (multi‑rank overlay)</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -28,7 +28,7 @@
     </style>
 </head>
 <body>
-    <h1>Serotype Ranking & Bland‑Altman (multi‑rank overlay) v0.5</h1>
+    <h1>Serotype Ranking & Bland‑Altman (multi‑rank overlay) v0.6 </h1>
     <p>Upload CSV (first column = sample ID). Assays with Ct ≥ 40 are ignored.<br>
     Choose assays to exclude, then rank. Select a reference assay, a primary rank for BA statistics, and optionally overlay other ranks as coloured points.</p>
 
@@ -202,16 +202,18 @@
                 const utf8Bytes = await decodeFileToCleanUTF8(file);
                 await webR.FS.writeFile('/home/data.csv', utf8Bytes);
                 showProgress(30, 'Loading data...');
+                // Return JSON string from R
                 const res = await webR.evalR(`
+                    library(jsonlite)
                     dt <- fread("/home/data.csv", header = TRUE)
-                    list(
+                    toJSON(list(
                         names = names(dt),
                         first_col = names(dt)[1],
                         data = as.data.frame(dt)
-                    )
+                    ), auto_unbox = TRUE, digits = 8)
                 `);
-                const json = await res.toJson();
-                const parsed = JSON.parse(json);
+                const jsonStr = await res.toString();
+                const parsed = JSON.parse(jsonStr);
                 currentData = parsed.data;
                 assayNames = parsed.names.slice(1);
                 // Populate checklist
@@ -249,6 +251,7 @@
                 const script = `
                     (function(data, excluded) {
                         library(data.table)
+                        library(jsonlite)
                         dt <- as.data.table(data)
                         assay_cols <- setdiff(names(dt)[-1], excluded)
                         dt[, (assay_cols) := lapply(.SD, as.numeric), .SDcols = assay_cols]
@@ -279,7 +282,7 @@
                         }
                         keep_cols <- c(names(dt)[1], assay_cols, cq_cols)
                         out_dt <- dt[, ..keep_cols]
-                        jsonlite::toJSON(as.data.frame(out_dt), auto_unbox = TRUE, digits = 8)
+                        toJSON(as.data.frame(out_dt), auto_unbox = TRUE, digits = 8)
                     })(currentData, ${excludedJson})
                 `;
                 const result = await webR.evalR(script);
@@ -312,19 +315,17 @@
             const margin = parseFloat(aprioriMarginInput.value) || 0;
             const showCIs = showCI.checked;
 
-            // Build data for primary rank (BA stats) and all requested ranks (points only)
             const primaryRankCol = `rank${primaryRank}_Cq`;
             const allRankCols = showRanks.map(r => `rank${r}_Cq`);
-            const ranksJson = JSON.stringify(showRanks);
             const script = `
                 library(data.table)
+                library(jsonlite)
                 dt <- as.data.table(rankingResult)
                 ref_col <- "${refAssay}"
                 primary_rank_col <- "${primaryRankCol}"
                 all_rank_cols <- c(${allRankCols.map(c => `"${c}"`).join(',')})
                 ranks <- c(${showRanks.join(',')})
                 
-                # Primary rank data (for BA statistics)
                 valid_primary <- !is.na(dt[[ref_col]]) & !is.na(dt[[primary_rank_col]]) & dt[[primary_rank_col]] < 40
                 if (sum(valid_primary) < 2) {
                     result <- list(error = "Insufficient pairs for primary rank")
@@ -335,7 +336,6 @@
                     mean_primary <- (x_primary + y_primary) / 2
                     n <- length(diff_primary)
                     
-                    # Compute BA statistics based on method
                     if ("${method}" == "parametric") {
                         bias <- mean(diff_primary)
                         sd_diff <- sd(diff_primary)
@@ -369,7 +369,7 @@
                         loa_up_ci_high <- quantile(boot_up, 0.975)
                         loa_lo_ci_low <- quantile(boot_lo, 0.025)
                         loa_lo_ci_high <- quantile(boot_lo, 0.975)
-                    } else { # MAD
+                    } else {
                         bias <- median(diff_primary)
                         mad_val <- median(abs(diff_primary - bias))
                         loa_up <- bias + 1.96 * mad_val
@@ -393,7 +393,6 @@
                         loa_lo_ci_high <- quantile(boot_lo, 0.975)
                     }
                     
-                    # Collect overlay data for all selected ranks (including primary, but points will be drawn separately)
                     overlay_points <- list()
                     for (i in seq_along(all_rank_cols)) {
                         rank_col <- all_rank_cols[i]
@@ -424,7 +423,7 @@
                         overlay = overlay_points
                     )
                 }
-                jsonlite::toJSON(result, auto_unbox = TRUE, digits = 8)
+                toJSON(result, auto_unbox = TRUE, digits = 8)
             `;
             try {
                 const statsRes = await webR.evalR(script);
@@ -437,13 +436,11 @@
                 const primary = result.primary;
                 const overlay = result.overlay;
                 
-                // Build Plotly traces
                 const traces = [];
                 const colors = {1: 'blue', 2: 'green', 3: 'orange', 4: 'purple', 5: 'brown'};
                 const pointSize = 8;
                 const opacity = 0.7;
                 
-                // Add points for each selected rank (including primary, but we add all from overlay)
                 for (const rkStr in overlay) {
                     const rk = parseInt(rkStr);
                     const pts = overlay[rkStr];
@@ -460,14 +457,13 @@
                     }
                 }
                 
-                // Add BA lines (primary rank only)
                 const xRange = [Math.min(...primary.mean_vals, 20), Math.max(...primary.mean_vals, 42)];
-                const lineColor = colors[primaryRankSelect.value];
+                const lineColor = colors[primaryRank];
                 if (showBias.checked) {
                     traces.push({
                         x: xRange, y: [primary.bias, primary.bias],
                         mode: 'lines', line: { color: lineColor, width: 2, dash: 'solid' },
-                        name: `Bias (primary rank ${primaryRankSelect.value})`, showlegend: true
+                        name: `Bias (primary rank ${primaryRank})`, showlegend: true
                     });
                     if (showCIs.checked && primary.bias_ci_low !== undefined) {
                         traces.push({ x: xRange, y: [primary.bias_ci_low, primary.bias_ci_low], mode: 'lines', line: { color: lineColor, width: 1, dash: 'dot' }, showlegend: false });
@@ -507,7 +503,7 @@
                 }
                 
                 const layout = {
-                    title: `Bland‑Altman: ${refAssay} vs. primary rank ${primaryRankSelect.value} (other ranks as points)`,
+                    title: `Bland‑Altman: ${refAssay} vs. primary rank ${primaryRank} (other ranks as points)`,
                     xaxis: { title: 'Mean of reference and rank [Cq]', range: [20,42], showgrid: false, zeroline: false },
                     yaxis: { title: `Difference (${refAssay} - rank) [Cq]`, range: [-20,20], showgrid: false, zeroline: false },
                     hovermode: 'closest',
@@ -519,9 +515,8 @@
                 };
                 Plotly.newPlot('baPlot', traces, layout);
                 
-                // Stats table
                 statsTableBody.innerHTML = `
-                    <tr><td>Bias</td><td>${primary.bias.toFixed(3)} ${showCIs ? `(95% CI: ${primary.bias_ci_low.toFixed(3)} – ${primary.bias_ci_high.toFixed(3)})` : ''}</td></tr>
+                    <tr><td>Basis</td><td>${primary.bias.toFixed(3)} ${showCIs ? `(95% CI: ${primary.bias_ci_low.toFixed(3)} – ${primary.bias_ci_high.toFixed(3)})` : ''}</td></tr>
                     <tr><td>Upper LoA</td><td>${primary.loa_upper.toFixed(3)} ${showCIs ? `(95% CI: ${primary.loa_up_ci_low.toFixed(3)} – ${primary.loa_up_ci_high.toFixed(3)})` : ''}</td></tr>
                     <tr><td>Lower LoA</td><td>${primary.loa_lower.toFixed(3)} ${showCIs ? `(95% CI: ${primary.loa_lo_ci_low.toFixed(3)} – ${primary.loa_lo_ci_high.toFixed(3)})` : ''}</td></tr>
                     <tr><td>Number of pairs (primary rank)</td><td>${primary.mean_vals.length}</td></tr>
