@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bland‑Altman Plot (Cq Values) v14.0 </title>
+    <title>Bland‑Altman Plot & ICC (Cq Values)</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -12,11 +12,12 @@
                          text-align: center; color: white; line-height: 28px; font-weight: bold; }
         #statusMsg { margin: 10px 0; color: #555; font-style: italic; }
         #chart { width: 100%; height: 350px; }
+        #iccResult { margin-top: 20px; font-size: 16px; font-weight: bold; color: #333; }
     </style>
 </head>
 <body>
-    <h1>Bland‑Altman Plot (Cq Values) v14.0 </h1>
-    <p> <i>Work in progress</i> </i>Upload a CSV with a header. The first two columns must be numeric Cq values. Make sure to replace negative samples (blank cells or containing "Undetermined", etc.) with fictive value of 41, so that negative values can be displayed in the plot. Row names are handled automatically. </p>
+    <h1>Bland‑Altman Plot (Cq Values)</h1>
+    <p>Upload a CSV with a header. The first two columns must be numeric Cq values. (Row names are handled automatically.)</p>
 
     <input type="file" id="csvFile" accept=".csv" />
 
@@ -28,6 +29,7 @@
     </div>
 
     <div id="chart"></div>
+    <div id="iccResult"></div>
 
     <script type="module">
         import { WebR } from 'https://webr.r-wasm.org/v0.4.0/webr.mjs';
@@ -37,6 +39,7 @@
         const statusMsg   = document.getElementById('statusMsg');
         const progCont    = document.getElementById('progressContainer');
         const chartDiv    = document.getElementById('chart');
+        const iccDiv      = document.getElementById('iccResult');
 
         function showProgress(pct, msg) {
             progCont.style.display = 'block';
@@ -122,21 +125,18 @@
 
                 showProgress(60, 'Computing Bland‑Altman statistics (Cq < 40)…');
                 chartDiv.innerHTML = '';
+                iccDiv.innerHTML = '';
 
-                // R: read CSV, automatically handle row names, compute statistics
+                // R: read CSV, handle row names, compute BA statistics
                 const result = await webR.evalR(`
                     library(data.table)
                     library(jsonlite)
 
                     dt <- fread("/home/data.csv", header = TRUE)
-
-                    # Detect if the first column is row names (empty header or sequential integers)
                     cn <- names(dt)
                     if (ncol(dt) >= 3 && (cn[1] == "" || cn[1] == "V1")) {
-                        # Likely row names – use columns 2 and 3
                         cols_use <- 2:3
                     } else {
-                        # Use the first two columns
                         cols_use <- 1:2
                     }
 
@@ -167,6 +167,55 @@
                 const jsonStr = await result.toString();
                 const d = JSON.parse(jsonStr);
 
+                // ---- Compute ICC (two‑way consistency, single) ----
+                showProgress(75, 'Computing ICC…');
+                const iccResult = await webR.evalR(`
+                    library(data.table)
+
+                    dt <- fread("/home/data.csv", header = TRUE)
+                    cn <- names(dt)
+                    if (ncol(dt) >= 3 && (cn[1] == "" || cn[1] == "V1")) {
+                        cols_use <- 2:3
+                    } else {
+                        cols_use <- 1:2
+                    }
+                    dt <- dt[, ..cols_use]
+                    setnames(dt, c("Method1", "Method2"))
+                    dt <- na.omit(dt)
+                    dt <- dt[Method1 < 40 & Method2 < 40]
+
+                    n <- nrow(dt)
+                    if (n < 3) stop("Need at least 3 complete pairs to compute ICC.")
+
+                    dt_long <- melt(dt, id.vars = NULL, measure.vars = c("Method1", "Method2"),
+                                    variable.name = "method", value.name = "value")
+                    dt_long[, subject := rep(1:n, times = 2)]
+
+                    anova_model <- aov(value ~ factor(method) + factor(subject), data = dt_long)
+                    ms <- summary(anova_model)[[1]]["Mean Sq"]
+                    MS_subject <- ms[["factor(subject)"]]
+                    MS_error   <- ms[["Residuals"]]
+
+                    ICC <- (MS_subject - MS_error) / (MS_subject + MS_error)
+
+                    df_subject <- n - 1
+                    df_error   <- (n - 1) * (2 - 1)
+
+                    F_obs <- MS_subject / MS_error
+                    F_lower <- F_obs / qf(0.975, df_subject, df_error)
+                    F_upper <- F_obs * qf(0.975, df_error, df_subject)
+
+                    LCI <- (F_lower - 1) / (F_lower + 1)
+                    UCI <- (F_upper - 1) / (F_upper + 1)
+
+                    paste0("ICC (two‑way consistency, single measure) = ",
+                           round(ICC, 4),
+                           " (95% CI: ",
+                           round(LCI, 4), " – ", round(UCI, 4), ")")
+                `);
+
+                const iccText = await iccResult.toString();
+
                 showProgress(80, 'Rendering plot…');
 
                 // ---- Separate groups ----
@@ -185,29 +234,24 @@
 
                 // ---- Point traces ----
                 const traceGreen = {
-                    x: xGreen,
-                    y: yGreen,
-                    type: 'scatter',
-                    mode: 'markers',
-                    marker: { size: 8, color: 'seagreen1', line: { color: 'seagreen', width: 1.5 } },
-                    opacity: 0.8,
-                    name: 'Both < 40',
-                    showlegend: false
+                    x: xGreen, y: yGreen,
+                    type: 'scatter', mode: 'markers',
+                    marker: { size: 8, color: 'seagreen1',
+                              line: { color: 'seagreen', width: 1.5 } },
+                    opacity: 0.8, name: 'Both < 40', showlegend: false
                 };
 
                 const traceGrey = {
-                    x: xGrey,
-                    y: yGrey,
-                    type: 'scatter',
-                    mode: 'markers',
-                    marker: { size: 6, color: 'grey', line: { color: 'darkgrey', width: 1.5 } },
-                    opacity: 0.4,
-                    name: '≥ 40',
-                    showlegend: false
+                    x: xGrey, y: yGrey,
+                    type: 'scatter', mode: 'markers',
+                    marker: { size: 6, color: 'grey',
+                              line: { color: 'darkgrey', width: 1.5 } },
+                    opacity: 0.4, name: '≥ 40', showlegend: false
                 };
 
-                const xMin = 0, xMax = 45;
-                // ---- Horizontal lines (interactive) ----
+                const xMin = 20, xMax = 42;
+
+                // ---- Horizontal lines (INTERACTIVE) ----
                 const lines = [
                     {
                         x: [xMin, xMax],
@@ -274,8 +318,9 @@
                         showlegend: false
                     }
                 ];
+
                 const layout = {
-                    title: 'Cq Agreement plot',
+                    title: 'Conditional dependence between genetic markers',
                     xaxis: { title: 'Mean of two measurements [Cq]', range: [20, 42], dtick: 5, showgrid: false },
                     yaxis: { title: 'Difference (marker A - marker B [Cq])', range: [-20, 20], dtick: 5, showgrid: false },
                     width: 800, height: 350,
@@ -283,9 +328,13 @@
                     hovermode: 'closest',
                     plot_bgcolor: 'white', paper_bgcolor: 'white'
                 };
+
                 Plotly.newPlot('chart', [traceGreen, traceGrey, ...lines], layout);
 
-                showProgress(100, 'Plot ready!');
+                // Display ICC result
+                iccDiv.textContent = iccText;
+
+                showProgress(100, 'Plot and ICC ready!');
             } catch (err) {
                 console.error(err);
                 showProgress(0, 'Error: ' + err.message);
