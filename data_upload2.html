@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bland‑Altman Plot & ICC (Cq Values) v19.1</title>
+    <title>Bland‑Altman Plot & ICC (Cq Values) v19.2</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -17,7 +17,7 @@
                         border-radius: 6px; padding: 15px; font-size: 13px; }
         #controlPanel h3 { margin-top: 0; font-size: 15px; }
         #controlPanel label { display: block; margin: 6px 0; cursor: pointer; }
-        #controlPanel select { width: 100%; padding: 4px; margin-bottom: 10px; }
+        #controlPanel select, #controlPanel input[type="number"] { width: 100%; padding: 4px; margin-bottom: 10px; box-sizing: border-box; }
         #controlPanel input[type="checkbox"] { margin-right: 6px; }
         #statsDisplay { margin-top: 12px; padding: 8px; background: #fff; border: 1px solid #eee;
                         border-radius: 4px; line-height: 1.6; }
@@ -27,7 +27,7 @@
     </style>
 </head>
 <body>
-    <h1>Bland‑Altman Plot (Cq Values) v19.1</h1>
+    <h1>Bland‑Altman Plot (Cq Values) v19.2</h1>
     <p>Upload a CSV with a header. The first two columns must be numeric Cq values. (Row names are handled automatically.)</p>
 
     <input type="file" id="csvFile" accept=".csv" />
@@ -54,6 +54,9 @@
                     <option value="mad" selected>MAD‑based (median ± 1.96·MAD)</option>
                 </select>
             </label>
+            <label>A priori margin (±):
+                <input type="number" id="aprioriMargin" value="2" step="0.1" min="0">
+            </label>
             <label><input type="checkbox" id="showBias" checked> Show bias</label>
             <label><input type="checkbox" id="showUpperLoA" checked> Show upper LoA</label>
             <label><input type="checkbox" id="showLowerLoA" checked> Show lower LoA</label>
@@ -70,24 +73,25 @@
         import { WebR } from 'https://webr.r-wasm.org/v0.4.0/webr.mjs';
 
         // ---- DOM elements ----
-        const fileInput      = document.getElementById('csvFile');
-        const progBar        = document.getElementById('progressBar');
-        const statusMsg      = document.getElementById('statusMsg');
-        const progCont       = document.getElementById('progressContainer');
-        const mainContainer  = document.getElementById('mainContainer');
-        const chartDiv       = document.getElementById('chart');
-        const iccDiv         = document.getElementById('iccResult');
-        const kappaDiv       = document.getElementById('kappaResult');
-        const statsDisplay   = document.getElementById('statsDisplay');
-        const methodSelect   = document.getElementById('methodSelect');
-        const cbBias         = document.getElementById('showBias');
-        const cbUpperLoA     = document.getElementById('showUpperLoA');
-        const cbLowerLoA     = document.getElementById('showLowerLoA');
-        const cbUpperApr     = document.getElementById('showUpperApriori');
-        const cbLowerApr     = document.getElementById('showLowerApriori');
-        const cbCI           = document.getElementById('showCI');
-        const cbGrey         = document.getElementById('showGreyPoints');
-        const cbZero         = document.getElementById('showZero');
+        const fileInput       = document.getElementById('csvFile');
+        const progBar         = document.getElementById('progressBar');
+        const statusMsg       = document.getElementById('statusMsg');
+        const progCont        = document.getElementById('progressContainer');
+        const mainContainer   = document.getElementById('mainContainer');
+        const chartDiv        = document.getElementById('chart');
+        const iccDiv          = document.getElementById('iccResult');
+        const kappaDiv        = document.getElementById('kappaResult');
+        const statsDisplay    = document.getElementById('statsDisplay');
+        const methodSelect    = document.getElementById('methodSelect');
+        const aprioriMarginIn = document.getElementById('aprioriMargin');
+        const cbBias          = document.getElementById('showBias');
+        const cbUpperLoA      = document.getElementById('showUpperLoA');
+        const cbLowerLoA      = document.getElementById('showLowerLoA');
+        const cbUpperApr      = document.getElementById('showUpperApriori');
+        const cbLowerApr      = document.getElementById('showLowerApriori');
+        const cbCI            = document.getElementById('showCI');
+        const cbGrey          = document.getElementById('showGreyPoints');
+        const cbZero          = document.getElementById('showZero');
 
         // ---- Global state ----
         let allStats = null;
@@ -159,6 +163,7 @@
             const m = currentMethod;
             const s = allStats[m];
             const d = plotData;
+            const margin = parseFloat(aprioriMarginIn.value) || 0;   // a priori margin
 
             const xGreen = [], yGreen = [], xGrey = [], yGrey = [];
             for (let i = 0; i < d.condition.length; i++) {
@@ -190,7 +195,6 @@
 
             const xMin = 20, xMax = 42;
 
-            // Helper functions
             function addLine(yVal, color, dash, width, opacity, name, hoverinfo = 'name+y') {
                 traces.push({
                     x: [xMin, xMax], y: [yVal, yVal],
@@ -228,15 +232,17 @@
                 }
             }
 
-            // A priori limits
+            // A priori limits (using user-defined margin)
+            const upperApr = s.bias + margin;
+            const lowerApr = s.bias - margin;
             if (cbUpperApr.checked) {
-                addLine(s.bias + 2, 'green', 'solid', 1.5, 0.7, `Upper a priori limit = ${(s.bias + 2).toFixed(3)}`);
+                addLine(upperApr, 'green', 'solid', 1.5, 0.7, `Upper a priori limit = ${upperApr.toFixed(3)}`);
             }
             if (cbLowerApr.checked) {
-                addLine(s.bias - 2, 'green', 'solid', 1.5, 0.7, `Lower a priori limit = ${(s.bias - 2).toFixed(3)}`);
+                addLine(lowerApr, 'green', 'solid', 1.5, 0.7, `Lower a priori limit = ${lowerApr.toFixed(3)}`);
             }
 
-            // Zero line (custom, only when checkbox checked)
+            // Zero line
             if (cbZero.checked) {
                 addLine(0, 'black', 'solid', 0.5, 0.25, 'LoE');
             }
@@ -245,29 +251,18 @@
                 title: 'Cq agreement plot',
                 xaxis: {
                     title: 'Mean of two measurements [Cq]',
-                    range: [20, 42],
-                    dtick: 5,
-                    showgrid: false,
-                    zeroline: false,        // remove default zero line
-                    showline: true,         // show axis line at the edge
-                    linecolor: 'black',
-                    linewidth: 1
+                    range: [20, 42], dtick: 5, showgrid: false,
+                    zeroline: false, showline: true, linecolor: 'black', linewidth: 1
                 },
                 yaxis: {
                     title: 'Difference (marker A - marker B [Cq])',
-                    range: [-20, 20],
-                    dtick: 5,
-                    showgrid: false,
-                    zeroline: false,        // remove default zero line
-                    showline: true,         // show axis line at the edge
-                    linecolor: 'black',
-                    linewidth: 1
+                    range: [-20, 20], dtick: 5, showgrid: false,
+                    zeroline: false, showline: true, linecolor: 'black', linewidth: 1
                 },
                 width: 650, height: 380,
                 margin: { l: 50, r: 20, b: 50, t: 40 },
                 hovermode: 'closest',
-                plot_bgcolor: 'white',
-                paper_bgcolor: 'white'
+                plot_bgcolor: 'white', paper_bgcolor: 'white'
             };
 
             Plotly.newPlot('chart', traces, layout);
@@ -277,8 +272,8 @@
                 <span>Bias:</span> ${s.bias.toFixed(3)}<br>
                 <span>Upper LoA:</span> ${s.loa_upper.toFixed(3)}<br>
                 <span>Lower LoA:</span> ${s.loa_lower.toFixed(3)}<br>
-                <span>Upper a priori:</span> ${(s.bias + 2).toFixed(3)}<br>
-                <span>Lower a priori:</span> ${(s.bias - 2).toFixed(3)}<br>
+                <span>Upper a priori (±${margin}):</span> ${upperApr.toFixed(3)}<br>
+                <span>Lower a priori (±${margin}):</span> ${lowerApr.toFixed(3)}<br>
                 ${s.bias_ci_low != null ? `<span>Bias 95% CI:</span> [${s.bias_ci_low.toFixed(3)}, ${s.bias_ci_high.toFixed(3)}]<br>` : ''}
                 ${s.loa_upper_ci_low != null ? `<span>Upper LoA 95% CI:</span> [${s.loa_upper_ci_low.toFixed(3)}, ${s.loa_upper_ci_high.toFixed(3)}]<br>` : ''}
                 ${s.loa_lower_ci_low != null ? `<span>Lower LoA 95% CI:</span> [${s.loa_lower_ci_low.toFixed(3)}, ${s.loa_lower_ci_high.toFixed(3)}]` : ''}
@@ -286,8 +281,14 @@
         }
 
         // ---- Event listeners ----
-        [methodSelect, cbBias, cbUpperLoA, cbLowerLoA, cbUpperApr, cbLowerApr, cbCI, cbGrey, cbZero].forEach(el => {
+        const controls = [methodSelect, aprioriMarginIn, cbBias, cbUpperLoA, cbLowerLoA,
+                          cbUpperApr, cbLowerApr, cbCI, cbGrey, cbZero];
+        controls.forEach(el => {
             el.addEventListener('change', () => {
+                currentMethod = methodSelect.value;
+                renderPlot();
+            });
+            if (el.type === 'number') el.addEventListener('input', () => {
                 currentMethod = methodSelect.value;
                 renderPlot();
             });
