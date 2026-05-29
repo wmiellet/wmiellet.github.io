@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Serotype Ranking + Bland‑Altman (multi‑rank overlay)</title>
+    <title>Serotype Ranking + Bland‑Altman (coloured by dominant serotype)</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -28,9 +28,10 @@
     </style>
 </head>
 <body>
-    <h1>Serotype Ranking & Bland‑Altman (multi‑rank overlay) v0.10</h1>
+    <h1>Serotype Ranking & Bland‑Altman (coloured by dominant serotype) v0.11 </h1>
     <p>Upload CSV (first column = sample ID). Assays with Ct ≥ 40 are ignored.<br>
-    Choose assays to exclude, then rank. Select a reference assay, a primary rank for BA statistics, and optionally overlay other ranks as coloured points.</p>
+    Choose assays to exclude, then rank. Points are coloured by the dominant (rank 1) serotype.<br>
+    Select a reference assay, a primary rank for BA statistics, and optionally overlay other ranks as coloured points.</p>
 
     <input type="file" id="csvFile" accept=".csv" />
 
@@ -96,7 +97,7 @@
             </div>
         </div>
         <div id="baPlotContainer">
-            <h3>Bland‑Altman Plot (Reference vs. Primary Rank – other ranks as coloured points)</h3>
+            <h3>Bland‑Altman Plot (Reference vs. Primary Rank – points coloured by dominant serotype)</h3>
             <div id="baPlot"></div>
             <table id="statsTable" class="stats-table"><thead><tr><th>Statistic</th><th>Value (95% CI)</th></tr></thead><tbody></tbody></table>
         </div>
@@ -221,13 +222,19 @@
                     label.innerHTML = `<input type="checkbox" class="excludeCheck" value="${assay}"> ${assay}`;
                     assayChecklistDiv.appendChild(label);
                 });
+                // Populate reference dropdown: all columns except the first (ID)
+                const allColumns = [parsed.names[0], ...assayNames];
                 refSelect.innerHTML = '';
-                [...assayNames, parsed.names[0]].forEach(col => {
+                allColumns.forEach(col => {
                     const opt = document.createElement('option');
                     opt.value = col;
                     opt.textContent = col;
                     refSelect.appendChild(opt);
                 });
+                // Set default reference to the first assay column (the second column overall)
+                if (assayNames.length > 0) {
+                    refSelect.value = assayNames[0];
+                }
                 controlPanel.style.display = 'block';
                 showProgress(100, 'CSV loaded. Select exclusions, then click "Run Ranking".');
             } catch (err) {
@@ -238,7 +245,7 @@
             }
         });
 
-        // Ranking function – embed currentData as JSON literal
+        // Ranking function – embed currentData as JSON literal, keep rank*_assay columns
         async function runRanking() {
             if (!currentData) return;
             const excluded = Array.from(document.querySelectorAll('.excludeCheck:checked')).map(cb => cb.value);
@@ -280,7 +287,8 @@
                         set(dt, j = cq_cols[k], value = result_cq[, k])
                         set(dt, j = name_cols[k], value = result_name[, k])
                     }
-                    keep_cols <- c(names(dt)[1], assay_cols, cq_cols)
+                    # Keep all original columns + the new rank columns (Cq and assay names)
+                    keep_cols <- c(names(dt)[1], assay_cols, cq_cols, name_cols)
                     out_dt <- dt[, ..keep_cols]
                     toJSON(as.data.frame(out_dt), auto_unbox = TRUE, digits = 8)
                 `;
@@ -297,7 +305,7 @@
             }
         }
 
-        // Bland‑Altman: embed rankingResult as JSON literal
+        // Bland‑Altman: embed rankingResult, colour points by rank1_assay
         async function updateBlandAltman() {
             if (!rankingResult) return;
             const refAssay = refSelect.value;
@@ -314,7 +322,6 @@
             const margin = parseFloat(aprioriMarginInput.value) || 0;
             const showCIs = showCI.checked;
 
-            // Serialize rankingResult to JSON and escape for embedding
             const rankingJson = JSON.stringify(rankingResult).replace(/\\/g, '\\\\').replace(/`/g, '\\`');
             const primaryRankCol = `rank${primaryRank}_Cq`;
             const allRankCols = showRanks.map(r => `rank${r}_Cq`);
@@ -327,6 +334,8 @@
                 primary_rank_col <- "${primaryRankCol}"
                 all_rank_cols <- c(${allRankCols.map(c => `"${c}"`).join(',')})
                 ranks <- c(${showRanks.join(',')})
+                # Ensure rank1_assay exists (colouring)
+                if (!"rank1_assay" %in% names(dt)) stop("rank1_assay column missing")
                 
                 valid_primary <- !is.na(dt[[ref_col]]) & !is.na(dt[[primary_rank_col]]) & dt[[primary_rank_col]] < 40
                 if (sum(valid_primary) < 2) {
@@ -395,15 +404,18 @@
                         loa_lo_ci_high <- quantile(boot_lo, 0.975)
                     }
                     
-                    overlay_points <- list()
+                    # Prepare overlay data: for each selected rank, store (x,y) and the corresponding rank1_assay
+                    overlay_list <- list()
                     for (i in seq_along(all_rank_cols)) {
                         rank_col <- all_rank_cols[i]
                         rk <- ranks[i]
                         valid <- !is.na(dt[[ref_col]]) & !is.na(dt[[rank_col]]) & dt[[rank_col]] < 40
                         if (sum(valid) > 0) {
-                            overlay_points[[as.character(rk)]] <- list(
+                            idx <- which(valid)
+                            overlay_list[[as.character(rk)]] <- list(
                                 x = (dt[[ref_col]][valid] + dt[[rank_col]][valid]) / 2,
-                                y = dt[[ref_col]][valid] - dt[[rank_col]][valid]
+                                y = dt[[ref_col]][valid] - dt[[rank_col]][valid],
+                                rank1_assay = dt[["rank1_assay"]][idx]
                             )
                         }
                     }
@@ -422,7 +434,7 @@
                             mean_vals = mean_primary,
                             diff_vals = diff_primary
                         ),
-                        overlay = overlay_points
+                        overlay = overlay_list
                     )
                 }
                 toJSON(result, auto_unbox = TRUE, digits = 8)
@@ -438,29 +450,60 @@
                 const primary = result.primary;
                 const overlay = result.overlay;
                 
-                const traces = [];
-                const colors = {1: 'blue', 2: 'green', 3: 'orange', 4: 'purple', 5: 'brown'};
-                const pointSize = 8;
-                const opacity = 0.7;
+                // Build traces: one trace per unique rank1_assay value, for each selected rank
+                // We'll collect all points (x,y) grouped by (rank, rank1_assay)
+                const tracesByRankAndAssay = new Map(); // key: "rank_assay"
+                const colors = {}; // will assign colors dynamically
+                const getColor = (assay) => {
+                    if (!colors[assay]) {
+                        // assign a color from a predefined palette based on assay name hash
+                        const hue = (assay.split('').reduce((a,b)=>a+b.charCodeAt(0),0) % 360);
+                        colors[assay] = `hsl(${hue}, 70%, 50%)`;
+                    }
+                    return colors[assay];
+                };
                 
-                for (const rkStr in overlay) {
+                // Process each selected rank
+                for (const [rkStr, rkData] of Object.entries(overlay)) {
                     const rk = parseInt(rkStr);
-                    const pts = overlay[rkStr];
-                    if (pts && pts.x && pts.x.length > 0) {
-                        traces.push({
-                            x: pts.x,
-                            y: pts.y,
-                            type: 'scatter',
-                            mode: 'markers',
-                            marker: { color: colors[rk], size: pointSize, opacity: opacity },
-                            name: `Rank ${rk} points`,
-                            showlegend: true
-                        });
+                    const rankAssays = rkData.rank1_assay;
+                    const xVals = rkData.x;
+                    const yVals = rkData.y;
+                    // Group by assay
+                    const groups = new Map(); // assay -> {x:[], y:[]}
+                    for (let i = 0; i < xVals.length; i++) {
+                        const assay = rankAssays[i];
+                        if (!groups.has(assay)) groups.set(assay, {x:[], y:[]});
+                        groups.get(assay).x.push(xVals[i]);
+                        groups.get(assay).y.push(yVals[i]);
+                    }
+                    for (const [assay, pts] of groups) {
+                        const key = `${rk}_${assay}`;
+                        if (!tracesByRankAndAssay.has(key)) {
+                            tracesByRankAndAssay.set(key, { rank: rk, assay: assay, x: [], y: [] });
+                        }
+                        tracesByRankAndAssay.get(key).x.push(...pts.x);
+                        tracesByRankAndAssay.get(key).y.push(...pts.y);
                     }
                 }
                 
+                // Create Plotly traces (each trace = one rank1_assay value, within a given rank)
+                const traces = [];
+                for (const [key, data] of tracesByRankAndAssay.entries()) {
+                    const color = getColor(data.assay);
+                    traces.push({
+                        x: data.x,
+                        y: data.y,
+                        type: 'scatter',
+                        mode: 'markers',
+                        marker: { color: color, size: 8, opacity: 0.7 },
+                        name: `Rank ${data.rank}: ${data.assay}`,
+                        showlegend: true
+                    });
+                }
+                
                 const xRange = [Math.min(...primary.mean_vals, 20), Math.max(...primary.mean_vals, 42)];
-                const lineColor = colors[primaryRank];
+                const lineColor = 'gray'; // lines are neutral, not coloured by assay
                 if (showBias.checked) {
                     traces.push({
                         x: xRange, y: [primary.bias, primary.bias],
@@ -505,7 +548,7 @@
                 }
                 
                 const layout = {
-                    title: `Bland‑Altman: ${refAssay} vs. primary rank ${primaryRank} (other ranks as points)`,
+                    title: `Bland‑Altman: ${refAssay} vs. primary rank ${primaryRank} (points coloured by dominant serotype)`,
                     xaxis: { title: 'Mean of reference and rank [Cq]', range: [20,42], showgrid: false, zeroline: false },
                     yaxis: { title: `Difference (${refAssay} - rank) [Cq]`, range: [-20,20], showgrid: false, zeroline: false },
                     hovermode: 'closest',
