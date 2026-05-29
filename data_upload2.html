@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bland‑Altman Plot & ICC (Cq Values) v19.0</title>
+    <title>Bland‑Altman Plot & ICC (Cq Values) v19.1</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -27,7 +27,7 @@
     </style>
 </head>
 <body>
-    <h1>Bland‑Altman Plot (Cq Values) v19.0</h1>
+    <h1>Bland‑Altman Plot (Cq Values) v19.1</h1>
     <p>Upload a CSV with a header. The first two columns must be numeric Cq values. (Row names are handled automatically.)</p>
 
     <input type="file" id="csvFile" accept=".csv" />
@@ -90,8 +90,8 @@
         const cbZero         = document.getElementById('showZero');
 
         // ---- Global state ----
-        let allStats = null;       // all computed statistics from R
-        let plotData = null;       // raw x,y,condition arrays
+        let allStats = null;
+        let plotData = null;
         let iccText  = '';
         let kappaText = '';
         let currentMethod = 'mad';
@@ -152,12 +152,12 @@
             return new TextEncoder().encode(str);
         }
 
-        // ---- Render the plot based on current controls ----
+        // ---- Render plot ----
         function renderPlot() {
             if (!allStats || !plotData) return;
 
             const m = currentMethod;
-            const s = allStats[m];   // selected method's statistics
+            const s = allStats[m];
             const d = plotData;
 
             const xGreen = [], yGreen = [], xGrey = [], yGrey = [];
@@ -190,7 +190,7 @@
 
             const xMin = 20, xMax = 42;
 
-            // Helper to add a line trace
+            // Helper functions
             function addLine(yVal, color, dash, width, opacity, name, hoverinfo = 'name+y') {
                 traces.push({
                     x: [xMin, xMax], y: [yVal, yVal],
@@ -200,84 +200,74 @@
                     name, hoverinfo, showlegend: false
                 });
             }
-            function addBand(yLow, yHigh, color, opacity = 0.15) {
-                // Band via two traces with fill
-                const idx = traces.length;
-                traces.push({
-                    x: [xMin, xMax], y: [yLow, yLow],
-                    type: 'scatter', mode: 'lines',
-                    line: { width: 0 }, showlegend: false, hoverinfo: 'none'
-                });
-                traces.push({
-                    x: [xMin, xMax], y: [yHigh, yHigh],
-                    type: 'scatter', mode: 'lines',
-                    line: { width: 0 }, showlegend: false, hoverinfo: 'none',
-                    fill: 'tonexty', fillcolor: color.replace(')', ',0.15)').replace('rgb', 'rgba')
-                });
-                // Override fillcolor
-                traces[traces.length-1].fillcolor = color;
-                traces[traces.length-1].opacity = opacity;
-            }
 
             // Bias line
             if (cbBias.checked) {
-                addLine(s.bias, 'blue', 'solid', 1.5, 0.8,
-                    `Bias = ${s.bias.toFixed(3)}`);
+                addLine(s.bias, 'blue', 'solid', 1.5, 0.8, `Bias = ${s.bias.toFixed(3)}`);
                 if (cbCI.checked && s.bias_ci_low != null) {
-                    addLine(s.bias_ci_low, 'blue', 'dash', 1, 0.4,
-                        `Bias CI low = ${s.bias_ci_low.toFixed(3)}`);
-                    addLine(s.bias_ci_high, 'blue', 'dash', 1, 0.4,
-                        `Bias CI high = ${s.bias_ci_high.toFixed(3)}`);
+                    addLine(s.bias_ci_low, 'blue', 'dash', 1, 0.4, `Bias CI low = ${s.bias_ci_low.toFixed(3)}`);
+                    addLine(s.bias_ci_high, 'blue', 'dash', 1, 0.4, `Bias CI high = ${s.bias_ci_high.toFixed(3)}`);
                 }
             }
 
             // Upper LoA
             if (cbUpperLoA.checked) {
-                addLine(s.loa_upper, 'red', 'dash', 1.2, 0.7,
-                    `Upper LoA = ${s.loa_upper.toFixed(3)}`);
+                addLine(s.loa_upper, 'red', 'dash', 1.2, 0.7, `Upper LoA = ${s.loa_upper.toFixed(3)}`);
                 if (cbCI.checked && s.loa_upper_ci_low != null) {
-                    addLine(s.loa_upper_ci_low, 'red', 'dot', 0.8, 0.35,
-                        `Upper LoA CI low = ${s.loa_upper_ci_low.toFixed(3)}`);
-                    addLine(s.loa_upper_ci_high, 'red', 'dot', 0.8, 0.35,
-                        `Upper LoA CI high = ${s.loa_upper_ci_high.toFixed(3)}`);
+                    addLine(s.loa_upper_ci_low, 'red', 'dot', 0.8, 0.35, `Upper LoA CI low = ${s.loa_upper_ci_low.toFixed(3)}`);
+                    addLine(s.loa_upper_ci_high, 'red', 'dot', 0.8, 0.35, `Upper LoA CI high = ${s.loa_upper_ci_high.toFixed(3)}`);
                 }
             }
 
             // Lower LoA
             if (cbLowerLoA.checked) {
-                addLine(s.loa_lower, 'red', 'dash', 1.2, 0.7,
-                    `Lower LoA = ${s.loa_lower.toFixed(3)}`);
+                addLine(s.loa_lower, 'red', 'dash', 1.2, 0.7, `Lower LoA = ${s.loa_lower.toFixed(3)}`);
                 if (cbCI.checked && s.loa_lower_ci_low != null) {
-                    addLine(s.loa_lower_ci_low, 'red', 'dot', 0.8, 0.35,
-                        `Lower LoA CI low = ${s.loa_lower_ci_low.toFixed(3)}`);
-                    addLine(s.loa_lower_ci_high, 'red', 'dot', 0.8, 0.35,
-                        `Lower LoA CI high = ${s.loa_lower_ci_high.toFixed(3)}`);
+                    addLine(s.loa_lower_ci_low, 'red', 'dot', 0.8, 0.35, `Lower LoA CI low = ${s.loa_lower_ci_low.toFixed(3)}`);
+                    addLine(s.loa_lower_ci_high, 'red', 'dot', 0.8, 0.35, `Lower LoA CI high = ${s.loa_lower_ci_high.toFixed(3)}`);
                 }
             }
 
-            // A priori limits (based on bias ± 2, using bias from the selected method)
+            // A priori limits
             if (cbUpperApr.checked) {
-                addLine(s.bias + 2, 'green', 'solid', 1.5, 0.7,
-                    `Upper a priori limit = ${(s.bias + 2).toFixed(3)}`);
+                addLine(s.bias + 2, 'green', 'solid', 1.5, 0.7, `Upper a priori limit = ${(s.bias + 2).toFixed(3)}`);
             }
             if (cbLowerApr.checked) {
-                addLine(s.bias - 2, 'green', 'solid', 1.5, 0.7,
-                    `Lower a priori limit = ${(s.bias - 2).toFixed(3)}`);
+                addLine(s.bias - 2, 'green', 'solid', 1.5, 0.7, `Lower a priori limit = ${(s.bias - 2).toFixed(3)}`);
             }
 
-            // Zero line
+            // Zero line (custom, only when checkbox checked)
             if (cbZero.checked) {
                 addLine(0, 'black', 'solid', 0.5, 0.25, 'LoE');
             }
 
             const layout = {
                 title: 'Cq agreement plot',
-                xaxis: { title: 'Mean of two measurements [Cq]', range: [20, 42], dtick: 5, showgrid: false },
-                yaxis: { title: 'Difference (marker A - marker B [Cq])', range: [-20, 20], dtick: 5, showgrid: false },
+                xaxis: {
+                    title: 'Mean of two measurements [Cq]',
+                    range: [20, 42],
+                    dtick: 5,
+                    showgrid: false,
+                    zeroline: false,        // remove default zero line
+                    showline: true,         // show axis line at the edge
+                    linecolor: 'black',
+                    linewidth: 1
+                },
+                yaxis: {
+                    title: 'Difference (marker A - marker B [Cq])',
+                    range: [-20, 20],
+                    dtick: 5,
+                    showgrid: false,
+                    zeroline: false,        // remove default zero line
+                    showline: true,         // show axis line at the edge
+                    linecolor: 'black',
+                    linewidth: 1
+                },
                 width: 650, height: 380,
                 margin: { l: 50, r: 20, b: 50, t: 40 },
                 hovermode: 'closest',
-                plot_bgcolor: 'white', paper_bgcolor: 'white'
+                plot_bgcolor: 'white',
+                paper_bgcolor: 'white'
             };
 
             Plotly.newPlot('chart', traces, layout);
@@ -295,7 +285,7 @@
             `;
         }
 
-        // ---- Attach event listeners to all controls ----
+        // ---- Event listeners ----
         [methodSelect, cbBias, cbUpperLoA, cbLowerLoA, cbUpperApr, cbLowerApr, cbCI, cbGrey, cbZero].forEach(el => {
             el.addEventListener('change', () => {
                 currentMethod = methodSelect.value;
@@ -320,7 +310,6 @@
                 kappaDiv.innerHTML = '';
                 mainContainer.style.display = 'none';
 
-                // ---- Massive R computation: all three methods + CIs ----
                 const rawResult = await webR.evalR(`
                     library(data.table)
                     library(jsonlite)
@@ -346,7 +335,7 @@
                     diffs_all <- sub$diff_val
                     n <- length(diffs_all)
 
-                    # ---- Parametric ----
+                    # Parametric
                     mean_diff <- mean(diffs_all)
                     sd_diff <- sd(diffs_all)
                     loa_up_p <- mean_diff + 1.96 * sd_diff
@@ -361,12 +350,10 @@
                     loa_lo_ci_lo_p <- loa_lo_p - t_crit * se_loa_p
                     loa_lo_ci_hi_p <- loa_lo_p + t_crit * se_loa_p
 
-                    # ---- Non‑parametric (percentiles) ----
+                    # Non-parametric
                     median_diff <- median(diffs_all)
                     loa_up_np <- as.numeric(quantile(diffs_all, 0.975))
                     loa_lo_np <- as.numeric(quantile(diffs_all, 0.025))
-
-                    # Bootstrap CI for non‑parametric (300 reps)
                     set.seed(42)
                     B <- 300
                     boot_median <- boot_loa_up <- boot_loa_lo <- numeric(B)
@@ -383,12 +370,10 @@
                     loa_lo_ci_lo_np <- as.numeric(quantile(boot_loa_lo, 0.025))
                     loa_lo_ci_hi_np <- as.numeric(quantile(boot_loa_lo, 0.975))
 
-                    # ---- MAD-based ----
+                    # MAD-based
                     MAD_val <- median(abs(diffs_all - median_diff))
                     loa_up_mad <- median_diff + 1.96 * MAD_val
                     loa_lo_mad <- median_diff - 1.96 * MAD_val
-
-                    # Bootstrap CI for MAD-based
                     boot_median2 <- boot_loa_up_mad <- boot_loa_lo_mad <- numeric(B)
                     for (i in 1:B) {
                         s <- sample(diffs_all, replace = TRUE)
@@ -443,7 +428,7 @@
                     condition: fullData.condition
                 };
 
-                // ---- ICC ----
+                // ICC
                 showProgress(75, 'Computing ICC…');
                 const iccRaw = await webR.evalR(`
                     library(data.table)
@@ -485,7 +470,7 @@
                 iccText = (await iccRaw.toString()).trim();
                 if (iccText.startsWith('"')) iccText = iccText.slice(1, -1);
 
-                // ---- Cohen's kappa (with double-negative check) ----
+                // Kappa with double-negative check
                 showProgress(78, 'Computing Cohen\'s kappa…');
                 const kappaRaw = await webR.evalR(`
                     library(data.table)
@@ -499,7 +484,7 @@
                     dt[, pos1 := ifelse(Method1 < 40, 1, 0)]
                     dt[, pos2 := ifelse(Method2 < 40, 1, 0)]
                     tab <- table(factor(dt$pos1, levels = c(0,1)), factor(dt$pos2, levels = c(0,1)))
-                    dn <- tab[1,1]   # double negatives
+                    dn <- tab[1,1]
                     if (is.na(dn) || dn < 2) {
                         "KAPPA_SKIP: insufficient double negatives"
                     } else {
@@ -518,7 +503,7 @@
                 kappaText = (await kappaRaw.toString()).trim();
                 if (kappaText.startsWith('"')) kappaText = kappaText.slice(1, -1);
                 if (kappaText.startsWith('KAPPA_SKIP')) {
-                    kappaText = '';  // hide kappa
+                    kappaText = '';
                 }
 
                 showProgress(80, 'Rendering plot…');
