@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bland‑Altman Plot & ICC (Cq Values) v18.0 </title>
+    <title>Bland‑Altman Plot & ICC (Cq Values) v18.1 </title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -17,7 +17,7 @@
     </style>
 </head>
 <body>
-    <h1>Bland‑Altman Plot (Cq Values) v18.0 </h1>
+    <h1>Bland‑Altman Plot (Cq Values) v18.1 </h1>
     <p>Upload a CSV with a header. The first two columns must be numeric Cq values. (Row names are handled automatically.)</p>
 
     <input type="file" id="csvFile" accept=".csv" />
@@ -131,7 +131,7 @@
                 iccDiv.innerHTML = '';
                 kappaDiv.innerHTML = '';
 
-                // ----- Bland‑Altman calculations -----
+                // ----- Bland‑Altman calculations (with rounding) -----
                 const result = await webR.evalR(`
                     library(data.table)
                     library(jsonlite)
@@ -148,8 +148,12 @@
                     setnames(dt, c("Method1", "Method2"))
                     dt <- na.omit(dt)
 
-                    dt[, mean_val := (Method1 + Method2) / 2]
-                    dt[, diff_val := Method1 - Method2]
+                    # Round Method1 and Method2 to two decimal places
+                    dt[, Method1 := round(Method1, 2)]
+                    dt[, Method2 := round(Method2, 2)]
+
+                    dt[, mean_val := round((Method1 + Method2) / 2, 2)]
+                    dt[, diff_val := round(Method1 - Method2, 2)]
                     dt[, condition := Method1 < 40 & Method2 < 40]
 
                     sub <- dt[condition == TRUE]
@@ -226,9 +230,9 @@
                             UCI <- (F_upper - 1) / (F_upper + 1)
 
                             paste0("ICC (two‑way consistency, single measure) = ",
-                                   round(ICC, 2),
+                                   round(ICC, 3),
                                    " (95% CI: ",
-                                   round(LCI, 2), " \u2013 ", round(UCI, 2), ")")
+                                   round(LCI, 3), " \u2013 ", round(UCI, 3), ")")
                         }
                     }, error = function(e) {
                         paste("ICC calculation failed:", e$message)
