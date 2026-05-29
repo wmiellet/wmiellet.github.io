@@ -40,9 +40,12 @@ Figure 2: [Legend text].
 [Text].
 
 ## Produce an Agreement plot with your own data!
-[Upload a CSV and create a plot directly in your browser](https://wmiellet.github.io/data_upload.html)
+[Upload a CSV and create a plot directly in your browser](https://wmiellet.github.io/data_upload.html).
 
-## Recommendations
+## Limitations
+[Text].
+
+## Recommendations & concluding remarks
 We encourage others to routinely monitor agreement between genetic markers. Due to spatiotemporal variation in sample composition or study group composition, the diagnostic specificity of molecular assays fluctuates. This phenomenon is known as the spectrum effect and is an important source of methodological bias across studies and inter study variation [5]. To avoid these pitfalls, we recommend assessing agreement between genetic markers on a per study subgroup basis, and for annual cross sectional studies, on a yearly basis within a single subgroup.
 
 ### Reference list
