@@ -82,6 +82,7 @@
             <label><input type="checkbox" id="showZero" checked> Show zero line</label>
             <label><input type="checkbox" id="showProportionality"> Show proportionality line</label>
             <label><input type="checkbox" id="showZoneLabels"> Show zone labels</label>
+            <div id="statsDisplay">Upload data to see statistics.</div>
             <button id="downloadRankedBtn" class="download-btn" style="margin-top:10px; width:100%;">Download ranked CSV (top 5)</button>
         </div>
     </div>
@@ -187,6 +188,10 @@
         // ---- Render BA plot with colored points by serotype ----
         function renderPlot() {
             if (!allStats || !plotData) return;
+            if (!statsDisplay) {
+                console.warn('statsDisplay element missing');
+                return;
+            }
             const m = currentMethod;
             const s = allStats[m];
             const d = plotData;
@@ -202,7 +207,6 @@
             }
 
             const traces = [];
-            // Use a qualitative color palette
             const colorPalette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
             let colorIdx = 0;
             for (let [sero, pts] of colorMap.entries()) {
@@ -316,10 +320,12 @@
         // ---- UI event listeners ----
         const controls = [methodSelect, aprioriMarginIn, cbBias, cbUpperLoA, cbLowerLoA, cbUpperApr, cbLowerApr, cbCI, cbZero, cbProp, cbZone];
         controls.forEach(el => {
-            el.addEventListener('change', () => { currentMethod = methodSelect.value; renderPlot(); });
-            if (el.type === 'number') el.addEventListener('input', () => { currentMethod = methodSelect.value; renderPlot(); });
+            if (el) {
+                el.addEventListener('change', () => { currentMethod = methodSelect.value; renderPlot(); });
+                if (el.type === 'number') el.addEventListener('input', () => { currentMethod = methodSelect.value; renderPlot(); });
+            }
         });
-        kappaSelect.addEventListener('change', updateKappaDisplay);
+        if (kappaSelect) kappaSelect.addEventListener('change', updateKappaDisplay);
 
         // ---- Main file processing ----
         fileInput.addEventListener('change', async (e) => {
@@ -346,16 +352,13 @@
                     # Convert assays to numeric
                     dt[, (assay_cols) := lapply(.SD, as.numeric), .SDcols = assay_cols]
 
-                    # For each row, find the assay with lowest Ct < 40 (dominant)
-                    n_ranks <- 5  # we will also compute top 5 for download
+                    n_ranks <- 5
                     cutoff <- 40
 
-                    # Prepare storage for rank1 and for all ranks
-                    rank1_assay <- character(nrow(dt))
-                    rank1_Ct <- numeric(nrow(dt))
-                    # For full ranking (top 5)
                     rank_names <- matrix("-", nrow = nrow(dt), ncol = n_ranks)
                     rank_Ct <- matrix(NA_real_, nrow = nrow(dt), ncol = n_ranks)
+                    rank1_assay <- character(nrow(dt))
+                    rank1_Ct <- numeric(nrow(dt))
 
                     for (i in 1:nrow(dt)) {
                         vals <- unlist(dt[i, ..assay_cols])
@@ -370,7 +373,6 @@
                             k <- min(n_ranks, length(top_vals))
                             rank_names[i, 1:k] <- top_names[1:k]
                             rank_Ct[i, 1:k] <- top_vals[1:k]
-                            # rank1
                             rank1_assay[i] <- top_names[1]
                             rank1_Ct[i] <- top_vals[1]
                         } else {
@@ -379,18 +381,15 @@
                         }
                     }
 
-                    # Add ranking columns to original dt for download
                     cq_cols <- paste0("rank", 1:n_ranks, "_Cq")
                     name_cols <- paste0("rank", 1:n_ranks, "_assay")
                     for (k in 1:n_ranks) {
                         set(dt, j = cq_cols[k], value = rank_Ct[, k])
                         set(dt, j = name_cols[k], value = rank_names[, k])
                     }
-                    # Reorder for download: piaB, then Cq cols, then assay cols, then original assays
                     download_order <- c(piaB_col, cq_cols, name_cols, assay_cols)
                     setcolorder(dt, download_order)
 
-                    # Subset for BA: keep rows where rank1_Ct is not NA (i.e., at least one positive assay)
                     ba_dt <- data.table(
                         piaB = dt[[piaB_col]],
                         dominant_Ct = rank1_Ct,
@@ -398,17 +397,15 @@
                     )
                     ba_dt <- na.omit(ba_dt, cols = "dominant_Ct")
 
-                    # Now BA analysis on piaB vs dominant_Ct
                     dt_ba <- ba_dt[, .(Method1 = piaB, Method2 = dominant_Ct, Serotype = dominant_assay)]
                     dt_ba <- na.omit(dt_ba)
                     dt_ba[, mean_val := round((Method1 + Method2) / 2, 2)]
                     dt_ba[, diff_val := round(Method1 - Method2, 2)]
-                    dt_ba[, condition := Method1 < 40 & Method2 < 40]  # both <40 for BA (but we already have all dominant_Ct <40, piaB may be >=40)
+                    dt_ba[, condition := Method1 < 40 & Method2 < 40]
                     sub <- dt_ba[condition == TRUE]
                     diffs_all <- sub$diff_val
                     n <- length(diffs_all)
 
-                    # BA stats (parametric, nonparametric, MAD)
                     mean_diff <- mean(diffs_all)
                     sd_diff <- sd(diffs_all)
                     loa_up_p <- mean_diff + 1.96 * sd_diff
@@ -466,7 +463,7 @@
                     prop_intercept <- coef(prop_model)[1]
                     prop_pval <- summary(prop_model)$coefficients[2,4]
 
-                    # Kappa (binary positive: <40)
+                    # Kappa
                     dt_bin <- copy(dt_ba)
                     dt_bin[, pos1 := ifelse(Method1 < 40, 1, 0)]
                     dt_bin[, pos2 := ifelse(Method2 < 40, 1, 0)]
@@ -562,7 +559,7 @@
                         kappa_light1 = kappa_light1_text,
                         kappa_light2 = kappa_light2_text,
                         icc = icc_result,
-                        ranked_data = as.data.frame(dt)   # full ranked table for download
+                        ranked_data = as.data.frame(dt)
                     ), auto_unbox = TRUE, digits = 8)
                 `;
 
@@ -570,10 +567,7 @@
                 const jsonStr = await rawResult.toString();
                 const full = JSON.parse(jsonStr);
 
-                // Store ranked data for download
                 rankedFullData = full.ranked_data;
-
-                // BA data
                 columnNames = { m1: full.method1_name, m2: full.method2_name };
                 columnNamesDisplay.textContent = `Method A (piaB): ${columnNames.m1} | Method B (dominant assay): ${columnNames.m2}`;
                 allStats = {
@@ -600,7 +594,6 @@
                 currentMethod = methodSelect.value;
                 renderPlot();
                 showProgress(100, 'Analysis complete.');
-
             } catch (err) {
                 console.error(err);
                 showProgress(0, 'Error: ' + err.message);
@@ -611,7 +604,6 @@
             }
         });
 
-        // Download ranked CSV
         downloadRankedBtn.addEventListener('click', () => {
             if (!rankedFullData) return;
             const columns = Object.keys(rankedFullData[0]);
