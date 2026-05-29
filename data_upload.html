@@ -14,7 +14,7 @@
     </style>
 </head>
 <body>
-    <h1>Bland‑Altman Plot (Cq Values) v5.0 </h1>
+    <h1>Bland‑Altman Plot (Cq Values) v6.0 </h1>
     <p>Upload a CSV with a header. The first two columns must be numeric Cq values.</p>
 
     <input type="file" id="csvFile" accept=".csv" />
@@ -73,22 +73,53 @@
             }
         })();
 
-        // ---- Helper: decode file to UTF-8 string ----
+        // ---- Robust decoder that guarantees no null bytes ----
         async function readFileAsUTF8(file) {
             const buffer = await file.arrayBuffer();
             const bytes = new Uint8Array(buffer);
 
-            // Check for BOM (Byte Order Mark)
-            if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) {
-                // UTF-16 LE
-                return new TextDecoder('utf-16le').decode(bytes);
-            } else if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) {
-                // UTF-16 BE
-                return new TextDecoder('utf-16be').decode(bytes);
-            } else {
-                // Assume UTF-8 (or ASCII)
-                return new TextDecoder('utf-8').decode(bytes);
+            // 1. ZIP / Excel detection
+            if (bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4B) {
+                throw new Error(
+                    'This file appears to be an Excel (.xlsx) or ZIP archive. ' +
+                    'Please open it in Excel and use File → Save As → CSV UTF-8 (.csv).'
+                );
             }
+
+            // 2. Try common encodings, always fallback to UTF-16 LE
+            let str;
+            if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) {
+                str = new TextDecoder('utf-16le').decode(bytes);
+            } else if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) {
+                str = new TextDecoder('utf-16be').decode(bytes);
+            } else {
+                // No BOM – start with UTF-8
+                str = new TextDecoder('utf-8').decode(bytes);
+                if (str.includes('\0')) {
+                    // Try UTF-16 LE (most common Windows UCS-2)
+                    str = new TextDecoder('utf-16le').decode(bytes);
+                    if (str.includes('\0')) {
+                        str = new TextDecoder('utf-16be').decode(bytes);
+                    }
+                }
+            }
+
+            // 3. AGGRESSIVELY remove any null bytes that might remain
+            //    (e.g. from double-encoding or a corrupted BOM)
+            str = str.replace(/\0/g, '');
+
+            // 4. Log the first 200 chars for debugging (check in F12 console)
+            console.log('Decoded CSV (first 200 chars):', str.substring(0, 200));
+
+            // 5. If the string is empty or looks binary after cleaning, reject
+            if (str.length === 0 || /^[\x00-\x08\x0B\x0C\x0E-\x1F]+$/.test(str.substring(0, 50))) {
+                throw new Error(
+                    'The file does not contain valid CSV text. ' +
+                    'Try re‑saving it as "CSV UTF-8 (Comma delimited)" from Excel or R using write.csv(..., fileEncoding="UTF-8").'
+                );
+            }
+
+            return str;
         }
 
         // ---- Handle CSV upload ----
@@ -102,28 +133,20 @@
             }
 
             try {
-                showProgress(10, 'Reading file and converting encoding…');
-                // Convert to clean UTF-8 string (handles UTF-16)
+                showProgress(10, 'Reading file and verifying format…');
                 const csvText = await readFileAsUTF8(file);
 
                 showProgress(40, 'Sending to R…');
-                // Write decoded UTF-8 string to virtual filesystem
                 await webR.FS.writeFile('/home/data.csv', csvText);
 
                 showProgress(60, 'Processing and generating plot…');
                 plotCont.innerHTML = '';
 
                 await webR.evalR(`
-                    # Read CSV with data.table
                     dt <- fread("/home/data.csv", header = TRUE)
-
-                    # Assume first two columns are the Cq values
                     setnames(dt, c("Method1", "Method2"), 1:2)
-
-                    # Remove rows with missing values
                     dt <- na.omit(dt[, .(Method1, Method2)])
 
-                    # Bland‑Altman calculations
                     dt[, means := (Method1 + Method2) / 2]
                     dt[, diffs := Method1 - Method2]
                     avg_diff <- dt[, mean(diffs)]
