@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bland‑Altman Plot (Cq Values) v7.0 </title>
+    <title>Bland‑Altman Plot (Cq Values) v8.0</title>
     <style>
         body { font-family: sans-serif; padding: 20px; }
         #progressContainer { width: 100%; max-width: 500px; margin: 15px 0; display: none; }
@@ -14,7 +14,7 @@
     </style>
 </head>
 <body>
-    <h1>Bland‑Altman Plot (Cq Values) v7.0 </h1>
+    <h1>Bland‑Altman Plot (Cq Values) v8.0</h1>
     <p>Upload a CSV with a header. The first two columns must be numeric Cq values.</p>
 
     <input type="file" id="csvFile" accept=".csv" />
@@ -73,7 +73,7 @@
             }
         })();
 
-        // ---- Decoder: returns clean string AND its UTF-8 bytes ----
+        // ---- Decoder: returns clean string and its UTF-8 bytes ----
         async function decodeFileToCleanUTF8(file) {
             const buffer = await file.arrayBuffer();
             const bytes = new Uint8Array(buffer);
@@ -102,12 +102,12 @@
             // Remove any stray null characters
             str = str.replace(/\0/g, '');
 
-            // Log for debugging (check in F12 console)
+            // Log for debugging
             console.log('Decoded CSV (first 200 chars):', str.substring(0, 200));
 
             // Encode this clean string as UTF-8 bytes
             const encoder = new TextEncoder();
-            const utf8Bytes = encoder.encode(str);   // Uint8Array
+            const utf8Bytes = encoder.encode(str);
 
             return { str, utf8Bytes };
         }
@@ -127,7 +127,6 @@
                 const { utf8Bytes } = await decodeFileToCleanUTF8(file);
 
                 showProgress(40, 'Writing clean UTF-8 to R…');
-                // Write the Uint8Array directly – no further encoding
                 await webR.FS.writeFile('/home/data.csv', utf8Bytes);
 
                 showProgress(60, 'Processing and generating plot…');
@@ -135,7 +134,10 @@
 
                 await webR.evalR(`
                     dt <- fread("/home/data.csv", header = TRUE)
-                    setnames(dt, c("Method1", "Method2"), 1:2)
+
+                    # Rename first two columns (corrected syntax)
+                    setnames(dt, 1:2, c("Method1", "Method2"))
+
                     dt <- na.omit(dt[, .(Method1, Method2)])
 
                     dt[, means := (Method1 + Method2) / 2]
