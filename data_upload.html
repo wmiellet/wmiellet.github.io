@@ -222,9 +222,9 @@
                             UCI <- (F_upper - 1) / (F_upper + 1)
 
                             paste0("ICC (two‑way consistency, single measure) = ",
-                                   round(ICC, 4),
+                                   round(ICC, 2),
                                    " (95% CI: ",
-                                   round(LCI, 4), " \u2013 ", round(UCI, 4), ")")
+                                   round(LCI, 2), " \u2013 ", round(UCI, 2), ")")
                         }
                     }, error = function(e) {
                         paste("ICC calculation failed:", e$message)
@@ -283,35 +283,35 @@
                         x: [xMin, xMax], y: [d.median + 2, d.median + 2],
                         type: 'scatter', mode: 'lines',
                         line: { color: 'red', width: 2 },
-                        name: `Median + 2 = ${(d.median + 2).toFixed(3)}`,
+                        name: `upper a priori limit = ${(d.median + 2).toFixed(3)}`,
                         hoverinfo: 'name+y', showlegend: false
                     },
                     {
                         x: [xMin, xMax], y: [d.median - 2, d.median - 2],
                         type: 'scatter', mode: 'lines',
                         line: { color: 'red', width: 2 },
-                        name: `Median - 2 = ${(d.median - 2).toFixed(3)}`,
+                        name: `lower a priori limit = ${(d.median - 2).toFixed(3)}`,
                         hoverinfo: 'name+y', showlegend: false
                     },
                     {
                         x: [xMin, xMax], y: [d.loa_upper, d.loa_upper],
                         type: 'scatter', mode: 'lines',
                         line: { color: 'black', width: 1, dash: 'dash' }, opacity: 0.5,
-                        name: `Upper LOA = ${d.loa_upper.toFixed(3)}`,
+                        name: `Upper LoA = ${d.loa_upper.toFixed(3)}`,
                         hoverinfo: 'name+y', showlegend: false
                     },
                     {
                         x: [xMin, xMax], y: [d.loa_lower, d.loa_lower],
                         type: 'scatter', mode: 'lines',
                         line: { color: 'black', width: 1, dash: 'dash' }, opacity: 0.5,
-                        name: `Lower LOA = ${d.loa_lower.toFixed(3)}`,
+                        name: `Lower LoA = ${d.loa_lower.toFixed(3)}`,
                         hoverinfo: 'name+y', showlegend: false
                     },
                     {
                         x: [xMin, xMax], y: [0, 0],
                         type: 'scatter', mode: 'lines',
                         line: { color: 'black', width: 0.5 }, opacity: 0.25,
-                        name: 'Zero', hoverinfo: 'name+y', showlegend: false
+                        name: 'LoE', hoverinfo: 'name+y', showlegend: false
                     }
                 ];
 
