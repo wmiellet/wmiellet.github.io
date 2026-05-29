@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bland‑Altman Plot (Cq Values) v13.0 </title>
+    <title>Bland‑Altman Plot (Cq Values) v14.0 </title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -15,7 +15,7 @@
     </style>
 </head>
 <body>
-    <h1>Bland‑Altman Plot (Cq Values) v13.0 </h1>
+    <h1>Bland‑Altman Plot (Cq Values) v14.0 </h1>
     <p> <i>Work in progress</i> </i>Upload a CSV with a header. The first two columns must be numeric Cq values. Make sure to replace negative samples (blank cells or containing "Undetermined", etc.) with fictive value of 41, so that negative values can be displayed in the plot. Row names are handled automatically. </p>
 
     <input type="file" id="csvFile" accept=".csv" />
@@ -274,21 +274,15 @@
                         showlegend: false
                     }
                 ];
-                // ---- Horizontal lines ----
-                const lines = [
-                    { x: [xMin, xMax], y: [d.median, d.median], type: 'scatter', mode: 'lines',
-                      line: { color: 'black', width: 1 }, opacity: 0.5, showlegend: false },
-                    { x: [xMin, xMax], y: [d.median + 2, d.median + 2], type: 'scatter', mode: 'lines',
-                      line: { color: 'red', width: 2 }, showlegend: false },
-                    { x: [xMin, xMax], y: [d.median - 2, d.median - 2], type: 'scatter', mode: 'lines',
-                      line: { color: 'red', width: 2 }, showlegend: false },
-                    { x: [xMin, xMax], y: [d.loa_upper, d.loa_upper], type: 'scatter', mode: 'lines',
-                      line: { color: 'black', width: 1, dash: 'dash' }, opacity: 0.5, showlegend: false },
-                    { x: [xMin, xMax], y: [d.loa_lower, d.loa_lower], type: 'scatter', mode: 'lines',
-                      line: { color: 'black', width: 1, dash: 'dash' }, opacity: 0.5, showlegend: false },
-                    { x: [xMin, xMax], y: [0, 0], type: 'scatter', mode: 'lines',
-                      line: { color: 'black', width: 0.5 }, opacity: 0.25, showlegend: false }
-                ];
+                const layout = {
+                    title: 'Cq Agreement plot',
+                    xaxis: { title: 'Mean of two measurements [Cq]', range: [20, 42], dtick: 5, showgrid: false },
+                    yaxis: { title: 'Difference (marker A - marker B [Cq])', range: [-20, 20], dtick: 5, showgrid: false },
+                    width: 800, height: 350,
+                    margin: { l: 50, r: 20, b: 50, t: 40 },
+                    hovermode: 'closest',
+                    plot_bgcolor: 'white', paper_bgcolor: 'white'
+                };
                 Plotly.newPlot('chart', [traceGreen, traceGrey, ...lines], layout);
 
                 showProgress(100, 'Plot ready!');
