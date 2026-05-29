@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Serotype Ranking + Bland‑Altman (coloured by dominant serotype)</title>
+    <title>Serotype Ranking & Bland‑Altman (coloured by dominant serotype)</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -25,15 +25,18 @@
         button { background: #4CAF50; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin: 10px 0; }
         button:hover { background: #45a049; }
         select, input[type="number"] { padding: 4px; }
+        .download-btn { background-color: #2196F3; }
+        .download-btn:hover { background-color: #0b7dda; }
     </style>
 </head>
 <body>
-    <h1>Serotype Ranking & Bland‑Altman (coloured by dominant serotype) v0.11b</h1>
-    <p>Upload CSV (first column = sample ID). Assays with Ct ≥ 40 are ignored.<br>
-    Choose assays to exclude, then rank. Points are coloured by the dominant (rank 1) serotype.<br>
-    Select a reference assay, a primary rank for BA statistics, and optionally overlay other ranks as coloured points.</p>
+    <h1>Serotype Ranking & Bland‑Altman (coloured by dominant serotype) v0.12 </h1>
+    <p>Upload a CSV file. The <strong>first column</strong> is treated as a reference assay (e.g., piaB) and is <strong>excluded from ranking</strong>. All other columns are serotype assays (Ct values, ≥40 = negative).<br>
+    Choose which serotype assays to exclude, then rank. Points are coloured by the dominant (rank1) serotype.<br>
+    Select a reference assay (default = first column) and a primary rank for Bland‑Altman statistics. Overlay other ranks as coloured points.</p>
 
     <input type="file" id="csvFile" accept=".csv" />
+    <button id="downloadRankedBtn" class="download-btn" style="display:none;">Download ranked CSV</button>
 
     <div id="progressContainer">
         <div class="progress-bg"><div id="progressBar" class="progress-fill">0%</div></div>
@@ -43,7 +46,7 @@
     <div id="controlPanel" style="display:none;">
         <div class="flex-container">
             <div class="panel" style="flex:1;">
-                <h3>Exclude assays from ranking</h3>
+                <h3>Exclude serotype assays from ranking</h3>
                 <div id="assayChecklist" class="assay-list"></div>
                 <button id="runRankingBtn">Run Ranking & Update Plot</button>
             </div>
@@ -99,7 +102,7 @@
         <div id="baPlotContainer">
             <h3>Bland‑Altman Plot (Reference vs. Primary Rank – points coloured by dominant serotype)</h3>
             <div id="baPlot"></div>
-            <table id="statsTable" class="stats-table"><thead><tr><th>Statistic</th><th>Value (95% CI)</th></tr></thead><tbody></tbody></table>
+            <table id="statsTable" class="stats-table"><thead><tr><th>Statistic</th><th>Value (95% CI)</th></tr></thead><tbody></tbody>能有
         </div>
     </div>
 
@@ -108,6 +111,7 @@
 
         // DOM elements
         const fileInput = document.getElementById('csvFile');
+        const downloadBtn = document.getElementById('downloadRankedBtn');
         const progBar = document.getElementById('progressBar');
         const statusMsg = document.getElementById('statusMsg');
         const progCont = document.getElementById('progressContainer');
@@ -138,9 +142,9 @@
 
         let webR;
         let Rready = false;
-        let currentData = null;
-        let assayNames = [];
-        let rankingResult = null;
+        let originalData = null;      // stores the original data (as JSON)
+        let serotypeCols = [];         // names of serotype columns (all except first)
+        let rankingResult = null;      // ranked data (with rank*_Cq, rank*_assay)
 
         function showProgress(pct, msg) {
             progCont.style.display = 'block';
@@ -194,7 +198,7 @@
             return new TextEncoder().encode(str);
         }
 
-        // Load CSV, display assay checklist, store original data
+        // Load CSV, store original data, populate serotype checklist, set default reference
         fileInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file || !Rready) return;
@@ -208,35 +212,39 @@
                     dt <- fread("/home/data.csv", header = TRUE)
                     toJSON(list(
                         names = names(dt),
-                        first_col = names(dt)[1],
                         data = as.data.frame(dt)
                     ), auto_unbox = TRUE, digits = 8)
                 `);
                 const jsonStr = await res.toString();
                 const parsed = JSON.parse(jsonStr);
-                currentData = parsed.data;
-                assayNames = parsed.names.slice(1);
+                originalData = parsed.data;
+                const allCols = parsed.names;
+                if (allCols.length < 2) throw new Error('CSV must have at least 2 columns.');
+                // First column is the reference assay (piaB), remaining are serotype assays
+                const referenceCol = allCols[0];
+                serotypeCols = allCols.slice(1);
+                
+                // Populate checklist for serotype assays (exclude first column)
                 assayChecklistDiv.innerHTML = '';
-                assayNames.forEach(assay => {
+                serotypeCols.forEach(assay => {
                     const label = document.createElement('label');
                     label.innerHTML = `<input type="checkbox" class="excludeCheck" value="${assay}"> ${assay}`;
                     assayChecklistDiv.appendChild(label);
                 });
-                // Populate reference dropdown: all columns except the first (ID)
-                const allColumns = [parsed.names[0], ...assayNames];
+                
+                // Populate reference dropdown with all columns (including first)
                 refSelect.innerHTML = '';
-                allColumns.forEach(col => {
+                allCols.forEach(col => {
                     const opt = document.createElement('option');
                     opt.value = col;
                     opt.textContent = col;
                     refSelect.appendChild(opt);
                 });
-                // Set default reference to the first assay column (the second column overall)
-                if (assayNames.length > 0) {
-                    refSelect.value = assayNames[0];
-                }
+                // Set default reference to the first column (piaB)
+                refSelect.value = referenceCol;
+                
                 controlPanel.style.display = 'block';
-                showProgress(100, 'CSV loaded. Select exclusions, then click "Run Ranking".');
+                showProgress(100, 'CSV loaded. Select serotype assays to exclude, then click "Run Ranking".');
             } catch (err) {
                 console.error(err);
                 alert('Error loading CSV: ' + err.message);
@@ -245,22 +253,23 @@
             }
         });
 
-        // Ranking function – embed currentData as JSON literal, keep rank*_assay columns
+        // Ranking function – only ranks serotypeCols (after exclusions)
         async function runRanking() {
-            if (!currentData) return;
+            if (!originalData) return;
             const excluded = Array.from(document.querySelectorAll('.excludeCheck:checked')).map(cb => cb.value);
             const excludedR = excluded.length ? `c(${excluded.map(s => `"${s.replace(/"/g, '\\"')}"`).join(', ')})` : 'c()';
-            const dataJson = JSON.stringify(currentData).replace(/\\/g, '\\\\').replace(/`/g, '\\`');
+            const dataJson = JSON.stringify(originalData).replace(/\\/g, '\\\\').replace(/`/g, '\\`');
             showProgress(40, 'Ranking serotypes (Ct<40 only)...');
             try {
                 const script = `
                     library(data.table)
                     library(jsonlite)
                     data_json <- '${dataJson}'
-                    data <- fromJSON(data_json)
-                    dt <- as.data.table(data)
+                    dt <- as.data.table(fromJSON(data_json))
+                    # First column is reference (excluded from ranking), the rest are serotype assays
+                    all_serotype_cols <- names(dt)[-1]
                     excluded <- ${excludedR}
-                    assay_cols <- setdiff(names(dt)[-1], excluded)
+                    assay_cols <- setdiff(all_serotype_cols, excluded)
                     dt[, (assay_cols) := lapply(.SD, as.numeric), .SDcols = assay_cols]
                     n_ranks <- 5
                     cutoff <- 40
@@ -287,7 +296,7 @@
                         set(dt, j = cq_cols[k], value = result_cq[, k])
                         set(dt, j = name_cols[k], value = result_name[, k])
                     }
-                    # Keep all original columns + the new rank columns (Cq and assay names)
+                    # Keep all original columns + the new rank columns
                     keep_cols <- c(names(dt)[1], assay_cols, cq_cols, name_cols)
                     out_dt <- dt[, ..keep_cols]
                     toJSON(as.data.frame(out_dt), auto_unbox = TRUE, digits = 8)
@@ -296,6 +305,7 @@
                 const jsonStr = await result.toString();
                 rankingResult = JSON.parse(jsonStr);
                 showProgress(100, 'Ranking completed.');
+                downloadBtn.style.display = 'inline-block';
                 updateBlandAltman();
             } catch (err) {
                 console.error(err);
@@ -334,7 +344,6 @@
                 primary_rank_col <- "${primaryRankCol}"
                 all_rank_cols <- c(${allRankCols.map(c => `"${c}"`).join(',')})
                 ranks <- c(${showRanks.join(',')})
-                # Ensure rank1_assay exists (colouring)
                 if (!"rank1_assay" %in% names(dt)) stop("rank1_assay column missing")
                 
                 valid_primary <- !is.na(dt[[ref_col]]) & !is.na(dt[[primary_rank_col]]) & dt[[primary_rank_col]] < 40
@@ -404,7 +413,6 @@
                         loa_lo_ci_high <- quantile(boot_lo, 0.975)
                     }
                     
-                    # Prepare overlay data: for each selected rank, store (x,y) and the corresponding rank1_assay
                     overlay_list <- list()
                     for (i in seq_along(all_rank_cols)) {
                         rank_col <- all_rank_cols[i]
@@ -450,46 +458,41 @@
                 const primary = result.primary;
                 const overlay = result.overlay;
                 
-                // Build traces: one trace per unique rank1_assay value, for each selected rank
-                // We'll collect all points (x,y) grouped by (rank, rank1_assay)
-                const tracesByRankAndAssay = new Map(); // key: "rank_assay"
-                const colors = {}; // will assign colors dynamically
+                // Build traces: group points by (rank, rank1_assay)
+                const tracesByKey = new Map(); // key: "rank|assay"
+                const colors = {};
                 const getColor = (assay) => {
                     if (!colors[assay]) {
-                        // assign a color from a predefined palette based on assay name hash
                         const hue = (assay.split('').reduce((a,b)=>a+b.charCodeAt(0),0) % 360);
                         colors[assay] = `hsl(${hue}, 70%, 50%)`;
                     }
                     return colors[assay];
                 };
                 
-                // Process each selected rank
                 for (const [rkStr, rkData] of Object.entries(overlay)) {
                     const rk = parseInt(rkStr);
-                    const rankAssays = rkData.rank1_assay;
+                    const assays = rkData.rank1_assay;
                     const xVals = rkData.x;
                     const yVals = rkData.y;
-                    // Group by assay
                     const groups = new Map(); // assay -> {x:[], y:[]}
                     for (let i = 0; i < xVals.length; i++) {
-                        const assay = rankAssays[i];
+                        const assay = assays[i];
                         if (!groups.has(assay)) groups.set(assay, {x:[], y:[]});
                         groups.get(assay).x.push(xVals[i]);
                         groups.get(assay).y.push(yVals[i]);
                     }
                     for (const [assay, pts] of groups) {
-                        const key = `${rk}_${assay}`;
-                        if (!tracesByRankAndAssay.has(key)) {
-                            tracesByRankAndAssay.set(key, { rank: rk, assay: assay, x: [], y: [] });
+                        const key = `${rk}|${assay}`;
+                        if (!tracesByKey.has(key)) {
+                            tracesByKey.set(key, { rank: rk, assay: assay, x: [], y: [] });
                         }
-                        tracesByRankAndAssay.get(key).x.push(...pts.x);
-                        tracesByRankAndAssay.get(key).y.push(...pts.y);
+                        tracesByKey.get(key).x.push(...pts.x);
+                        tracesByKey.get(key).y.push(...pts.y);
                     }
                 }
                 
-                // Create Plotly traces (each trace = one rank1_assay value, within a given rank)
                 const traces = [];
-                for (const [key, data] of tracesByRankAndAssay.entries()) {
+                for (const [key, data] of tracesByKey.entries()) {
                     const color = getColor(data.assay);
                     traces.push({
                         x: data.x,
@@ -503,7 +506,7 @@
                 }
                 
                 const xRange = [Math.min(...primary.mean_vals, 20), Math.max(...primary.mean_vals, 42)];
-                const lineColor = 'gray'; // lines are neutral, not coloured by assay
+                const lineColor = 'gray';
                 if (showBias.checked) {
                     traces.push({
                         x: xRange, y: [primary.bias, primary.bias],
@@ -571,6 +574,34 @@
                 alert('BA calculation failed: ' + err.message);
             }
         }
+        
+        // Download ranked CSV
+        downloadBtn.addEventListener('click', () => {
+            if (!rankingResult) return;
+            const columns = Object.keys(rankingResult[0]);
+            const csvRows = [];
+            csvRows.push(columns.join(','));
+            for (const row of rankingResult) {
+                const values = columns.map(col => {
+                    let val = row[col];
+                    if (val === null || val === undefined) val = '';
+                    if (typeof val === 'string' && (val.includes(',') || val.includes('"'))) {
+                        val = '"' + val.replace(/"/g, '""') + '"';
+                    }
+                    return val;
+                });
+                csvRows.push(values.join(','));
+            }
+            const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.href = url;
+            link.setAttribute('download', 'ranked_serotypes.csv');
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        });
         
         runRankingBtn.addEventListener('click', runRanking);
         const controls = [refSelect, primaryRankSelect, methodSelect, aprioriMarginInput, showBias, showUpperLoA, showLowerLoA, showUpperApriori, showLowerApriori, showCI, showZero, showZoneLabels];
