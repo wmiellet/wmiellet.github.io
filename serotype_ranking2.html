@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Serotype Ranking & Bland‑Altman (piaB vs dominant assay)</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        #progressContainer { width: 100%; max-width: 500px; margin: 15px 0; display: none; }
+        .progress-bg { background: #e0e0e0; border-radius: 6px; height: 28px; overflow: hidden; }
+        .progress-fill { width: 0%; height: 100%; background: #4CAF50; border-radius: 6px;
+                         text-align: center; color: white; line-height: 28px; font-weight: bold; }
+        #statusMsg { margin: 10px 0; color: #555; font-style: italic; }
+        #mainContainer { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+        #chartContainer { flex: 1 1 600px; min-width: 0; }
+        #controlPanel { flex: 0 0 280px; background: #f9f9f9; border: 1px solid #ddd;
+                        border-radius: 6px; padding: 15px; font-size: 13px; }
+        #controlPanel h3 { margin-top: 0; font-size: 15px; }
+        #controlPanel label { display: block; margin: 6px 0; cursor: pointer; }
+        #controlPanel select, #controlPanel input[type="number"] { width: 100%; padding: 4px; margin-bottom: 10px; box-sizing: border-box; }
+        #controlPanel input[type="checkbox"] { margin-right: 6px; }
+        #statsDisplay { margin-top: 12px; padding: 8px; background: #fff; border: 1px solid #eee;
+                        border-radius: 4px; line-height: 1.6; }
+        #statsDisplay span { font-weight: bold; }
+        #columnNamesDisplay { margin-bottom: 10px; font-size: 13px; color: #555; }
+        #chart { width: 100%; height: 380px; }
+        .agreement-stat { margin-top: 10px; font-size: 14px; color: #666; }
+        .download-btn { background-color: #4CAF50; color: white; padding: 8px 16px;
+                        border: none; border-radius: 4px; cursor: pointer; margin: 10px 0; }
+        .download-btn:hover { background-color: #45a049; }
+        .info { margin: 10px 0; font-size: 14px; color: #2c3e50; }
+    </style>
+</head>
+<body>
+    <h1>Serotype Ranking & Bland‑Altman (piaB vs dominant assay)</h1>
+    <p>Upload a CSV with first column = piaB (numeric Ct), remaining columns = serotype assays (Ct values).<br>
+    For each sample, the assay with the <strong>lowest Ct < 40</strong> is considered dominant (rank 1).<br>
+    The Bland‑Altman plot compares piaB (method A) versus the Ct of the dominant assay (method B).<br>
+    Points are colored by the dominant serotype name.</p>
+
+    <input type="file" id="csvFile" accept=".csv" />
+
+    <div id="progressContainer">
+        <div class="progress-bg">
+            <div id="progressBar" class="progress-fill" style="width: 0%;">0%</div>
+        </div>
+        <div id="statusMsg"></div>
+    </div>
+
+    <div id="mainContainer" style="display:none;">
+        <div id="chartContainer">
+            <div id="columnNamesDisplay"></div>
+            <div id="chart"></div>
+            <div id="iccResult" class="agreement-stat"></div>
+            <div id="kappaResult" class="agreement-stat"></div>
+        </div>
+        <div id="controlPanel">
+            <h3>Plot Controls</h3>
+            <label>Limit method:
+                <select id="methodSelect">
+                    <option value="parametric">Parametric (mean ± 1.96·SD)</option>
+                    <option value="nonparametric">Non‑parametric (percentiles)</option>
+                    <option value="mad" selected>MAD‑based (median ± 1.96·MAD)</option>
+                </select>
+            </label>
+            <label>A priori margin (±):
+                <input type="number" id="aprioriMargin" value="2" step="0.1" min="0">
+            </label>
+            <label>Kappa type:
+                <select id="kappaSelect">
+                    <option value="cohen" selected>Cohen's kappa</option>
+                    <option value="light1">Light's kappa (piaB ref.)</option>
+                    <option value="light2">Light's kappa (Dominant ref.)</option>
+                </select>
+            </label>
+            <label><input type="checkbox" id="showBias" checked> Show bias</label>
+            <label><input type="checkbox" id="showUpperLoA" checked> Show upper LoA</label>
+            <label><input type="checkbox" id="showLowerLoA" checked> Show lower LoA</label>
+            <label><input type="checkbox" id="showUpperApriori" checked> Show upper a priori limit</label>
+            <label><input type="checkbox" id="showLowerApriori" checked> Show lower a priori limit</label>
+            <label><input type="checkbox" id="showCI"> Show 95% CIs</label>
+            <label><input type="checkbox" id="showZero" checked> Show zero line</label>
+            <label><input type="checkbox" id="showProportionality"> Show proportionality line</label>
+            <label><input type="checkbox" id="showZoneLabels"> Show zone labels</label>
+            <button id="downloadRankedBtn" class="download-btn" style="margin-top:10px; width:100%;">Download ranked CSV (top 5)</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { WebR } from 'https://webr.r-wasm.org/v0.4.0/webr.mjs';
+
+        // ---- DOM elements ----
+        const fileInput           = document.getElementById('csvFile');
+        const progBar             = document.getElementById('progressBar');
+        const statusMsg           = document.getElementById('statusMsg');
+        const progCont            = document.getElementById('progressContainer');
+        const mainContainer       = document.getElementById('mainContainer');
+        const chartDiv            = document.getElementById('chart');
+        const iccDiv              = document.getElementById('iccResult');
+        const kappaDiv            = document.getElementById('kappaResult');
+        const statsDisplay        = document.getElementById('statsDisplay');
+        const columnNamesDisplay  = document.getElementById('columnNamesDisplay');
+        const methodSelect        = document.getElementById('methodSelect');
+        const aprioriMarginIn     = document.getElementById('aprioriMargin');
+        const kappaSelect         = document.getElementById('kappaSelect');
+        const cbBias              = document.getElementById('showBias');
+        const cbUpperLoA          = document.getElementById('showUpperLoA');
+        const cbLowerLoA          = document.getElementById('showLowerLoA');
+        const cbUpperApr          = document.getElementById('showUpperApriori');
+        const cbLowerApr          = document.getElementById('showLowerApriori');
+        const cbCI                = document.getElementById('showCI');
+        const cbZero              = document.getElementById('showZero');
+        const cbProp              = document.getElementById('showProportionality');
+        const cbZone              = document.getElementById('showZoneLabels');
+        const downloadRankedBtn   = document.getElementById('downloadRankedBtn');
+
+        // ---- Global state ----
+        let allStats = null;
+        let plotData = null;      // { means, diffs, condition, colors, color_labels }
+        let kappaTexts = { cohen: '', light1: '', light2: '' };
+        let columnNames = { m1: 'piaB', m2: 'Dominant assay' };
+        let iccText = '';
+        let currentMethod = 'mad';
+        let rankedFullData = null; // for download
+
+        function showProgress(pct, msg) {
+            progCont.style.display = 'block';
+            progBar.style.width = pct + '%';
+            progBar.textContent = pct + '%';
+            statusMsg.textContent = msg || '';
+        }
+        function hideProgress() {
+            setTimeout(() => { progCont.style.display = 'none'; }, 1200);
+        }
+
+        const webR = new WebR();
+        let Rready = false;
+
+        (async () => {
+            try {
+                showProgress(5, 'Starting R…');
+                await webR.init();
+                showProgress(20, 'Installing data.table, jsonlite…');
+                await webR.evalR('webr::install(c("data.table", "jsonlite"))');
+                showProgress(80, 'Loading libraries…');
+                await webR.evalR('library(data.table); library(jsonlite)');
+                Rready = true;
+                showProgress(100, 'Ready. Please upload a CSV file.');
+            } catch (e) {
+                showProgress(0, 'R init failed: ' + e.message);
+                console.error(e);
+                Rready = false;
+            } finally {
+                hideProgress();
+            }
+        })();
+
+        async function decodeFileToCleanUTF8(file) {
+            const buffer = await file.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+            if (bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4B) {
+                throw new Error('File appears to be an Excel (.xlsx) or ZIP archive. Please use CSV UTF-8.');
+            }
+            let str;
+            if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) {
+                str = new TextDecoder('utf-16le').decode(bytes);
+            } else if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) {
+                str = new TextDecoder('utf-16be').decode(bytes);
+            } else {
+                str = new TextDecoder('utf-8').decode(bytes);
+                if (str.includes('\0')) {
+                    str = new TextDecoder('utf-16le').decode(bytes);
+                    if (str.includes('\0')) str = new TextDecoder('utf-16be').decode(bytes);
+                }
+            }
+            str = str.replace(/\0/g, '');
+            return new TextEncoder().encode(str);
+        }
+
+        function updateKappaDisplay() {
+            const type = kappaSelect.value;
+            let txt = kappaTexts[type] || '';
+            if (txt.startsWith('KAPPA_SKIP')) txt = '';
+            kappaDiv.textContent = txt;
+        }
+
+        // ---- Render BA plot with colored points by serotype ----
+        function renderPlot() {
+            if (!allStats || !plotData) return;
+            const m = currentMethod;
+            const s = allStats[m];
+            const d = plotData;
+            const margin = parseFloat(aprioriMarginIn.value) || 0;
+
+            // Build traces per color (serotype)
+            const colorMap = new Map();
+            for (let i = 0; i < d.colors.length; i++) {
+                const col = d.colors[i];
+                if (!colorMap.has(col)) colorMap.set(col, { x: [], y: [] });
+                colorMap.get(col).x.push(d.means_all[i]);
+                colorMap.get(col).y.push(d.diffs_all[i]);
+            }
+
+            const traces = [];
+            // Use a qualitative color palette
+            const colorPalette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
+            let colorIdx = 0;
+            for (let [sero, pts] of colorMap.entries()) {
+                traces.push({
+                    x: pts.x, y: pts.y,
+                    type: 'scatter', mode: 'markers',
+                    marker: { size: 8, color: colorPalette[colorIdx % colorPalette.length], line: { color: 'black', width: 1 } },
+                    opacity: 0.8,
+                    name: sero,
+                    showlegend: true
+                });
+                colorIdx++;
+            }
+
+            const xMin = Math.min(...d.means_all, 20);
+            const xMax = Math.max(...d.means_all, 42);
+            const yAll = d.diffs_all;
+            const yMax = Math.max(...yAll);
+            const yMin = Math.min(...yAll);
+
+            function addLine(yVal, color, dash, width, opacity, name) {
+                traces.push({
+                    x: [xMin, xMax], y: [yVal, yVal],
+                    type: 'scatter', mode: 'lines',
+                    line: { color, width, dash: dash || 'solid' },
+                    opacity: opacity ?? 1,
+                    name, hoverinfo: 'name+y', showlegend: false
+                });
+            }
+
+            if (cbBias.checked) {
+                addLine(s.bias, 'blue', 'solid', 1.5, 0.8, `Bias = ${s.bias.toFixed(3)}`);
+                if (cbCI.checked && s.bias_ci_low != null) {
+                    addLine(s.bias_ci_low, 'blue', 'dash', 1, 0.4, `Bias CI low = ${s.bias_ci_low.toFixed(3)}`);
+                    addLine(s.bias_ci_high, 'blue', 'dash', 1, 0.4, `Bias CI high = ${s.bias_ci_high.toFixed(3)}`);
+                }
+            }
+            if (cbUpperLoA.checked) {
+                addLine(s.loa_upper, 'red', 'dash', 1.2, 0.7, `Upper LoA = ${s.loa_upper.toFixed(3)}`);
+                if (cbCI.checked && s.loa_upper_ci_low != null) {
+                    addLine(s.loa_upper_ci_low, 'red', 'dot', 0.8, 0.35, `Upper LoA CI low = ${s.loa_upper_ci_low.toFixed(3)}`);
+                    addLine(s.loa_upper_ci_high, 'red', 'dot', 0.8, 0.35, `Upper LoA CI high = ${s.loa_upper_ci_high.toFixed(3)}`);
+                }
+            }
+            if (cbLowerLoA.checked) {
+                addLine(s.loa_lower, 'red', 'dash', 1.2, 0.7, `Lower LoA = ${s.loa_lower.toFixed(3)}`);
+                if (cbCI.checked && s.loa_lower_ci_low != null) {
+                    addLine(s.loa_lower_ci_low, 'red', 'dot', 0.8, 0.35, `Lower LoA CI low = ${s.loa_lower_ci_low.toFixed(3)}`);
+                    addLine(s.loa_lower_ci_high, 'red', 'dot', 0.8, 0.35, `Lower LoA CI high = ${s.loa_lower_ci_high.toFixed(3)}`);
+                }
+            }
+            const upperApr = s.bias + margin;
+            const lowerApr = s.bias - margin;
+            if (cbUpperApr.checked) addLine(upperApr, 'green', 'solid', 1.5, 0.7, `Upper a priori = ${upperApr.toFixed(3)}`);
+            if (cbLowerApr.checked) addLine(lowerApr, 'green', 'solid', 1.5, 0.7, `Lower a priori = ${lowerApr.toFixed(3)}`);
+            if (cbProp.checked && s.prop_slope != null) {
+                const y1 = s.prop_intercept + s.prop_slope * xMin;
+                const y2 = s.prop_intercept + s.prop_slope * xMax;
+                traces.push({
+                    x: [xMin, xMax], y: [y1, y2],
+                    type: 'scatter', mode: 'lines',
+                    line: { color: 'magenta', width: 1.5, dash: 'dot' },
+                    name: `Prop trend (p=${s.prop_pval.toFixed(4)})`,
+                    showlegend: false
+                });
+            }
+            if (cbZero.checked) addLine(0, 'black', 'solid', 0.5, 0.25, 'Equality');
+
+            const annotations = [];
+            if (cbZone.checked) {
+                annotations.push({
+                    x: 0.98, y: yMax + 1.5, xref: 'paper', yref: 'y',
+                    text: `${columnNames.m1} > ${columnNames.m2}`,
+                    showarrow: false, font: { size: 10, color: '#888' }, xanchor: 'right'
+                });
+                annotations.push({
+                    x: 0.98, y: yMin - 1.5, xref: 'paper', yref: 'y',
+                    text: `${columnNames.m2} > ${columnNames.m1}`,
+                    showarrow: false, font: { size: 10, color: '#888' }, xanchor: 'right'
+                });
+                annotations.push({
+                    x: 0.98, y: 0.5, xref: 'paper', yref: 'y',
+                    text: `${columnNames.m1} = ${columnNames.m2}`,
+                    showarrow: false, font: { size: 10, color: '#888' }, xanchor: 'right'
+                });
+            }
+
+            const layout = {
+                title: `Bland‑Altman: ${columnNames.m1} vs ${columnNames.m2}`,
+                xaxis: { title: 'Mean of two measurements [Cq]', range: [xMin, xMax], dtick: 5, showgrid: false, zeroline: false, showline: true },
+                yaxis: { title: 'Difference (piaB - dominant) [Cq]', showgrid: false, zeroline: false, showline: true },
+                width: 650, height: 380,
+                margin: { l: 50, r: 20, b: 50, t: 40 },
+                hovermode: 'closest',
+                plot_bgcolor: 'white', paper_bgcolor: 'white',
+                annotations: annotations
+            };
+            Plotly.newPlot('chart', traces, layout);
+            statsDisplay.innerHTML = `
+                <span>Bias:</span> ${s.bias.toFixed(3)}<br>
+                <span>Upper LoA:</span> ${s.loa_upper.toFixed(3)}<br>
+                <span>Lower LoA:</span> ${s.loa_lower.toFixed(3)}<br>
+                <span>Upper a priori (±${margin}):</span> ${upperApr.toFixed(3)}<br>
+                <span>Lower a priori (±${margin}):</span> ${lowerApr.toFixed(3)}<br>
+                ${s.bias_ci_low != null ? `<span>Bias 95% CI:</span> [${s.bias_ci_low.toFixed(3)}, ${s.bias_ci_high.toFixed(3)}]<br>` : ''}
+                ${s.loa_upper_ci_low != null ? `<span>Upper LoA 95% CI:</span> [${s.loa_upper_ci_low.toFixed(3)}, ${s.loa_upper_ci_high.toFixed(3)}]<br>` : ''}
+                ${s.loa_lower_ci_low != null ? `<span>Lower LoA 95% CI:</span> [${s.loa_lower_ci_low.toFixed(3)}, ${s.loa_lower_ci_high.toFixed(3)}]` : ''}
+            `;
+        }
+
+        // ---- UI event listeners ----
+        const controls = [methodSelect, aprioriMarginIn, cbBias, cbUpperLoA, cbLowerLoA, cbUpperApr, cbLowerApr, cbCI, cbZero, cbProp, cbZone];
+        controls.forEach(el => {
+            el.addEventListener('change', () => { currentMethod = methodSelect.value; renderPlot(); });
+            if (el.type === 'number') el.addEventListener('input', () => { currentMethod = methodSelect.value; renderPlot(); });
+        });
+        kappaSelect.addEventListener('change', updateKappaDisplay);
+
+        // ---- Main file processing ----
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            if (!Rready) { alert('R is not ready. Please wait.'); return; }
+
+            try {
+                showProgress(10, 'Reading file…');
+                const utf8Bytes = await decodeFileToCleanUTF8(file);
+                showProgress(30, 'Sending to R…');
+                await webR.FS.writeFile('/home/data.csv', utf8Bytes);
+                showProgress(50, 'Ranking serotypes and preparing BA data…');
+
+                const analysisScript = `
+                    library(data.table)
+                    library(jsonlite)
+
+                    dt <- fread("/home/data.csv", header = TRUE)
+                    if (ncol(dt) < 2) stop("Need at least two columns (piaB + one assay)")
+                    piaB_col <- names(dt)[1]
+                    assay_cols <- names(dt)[-1]
+
+                    # Convert assays to numeric
+                    dt[, (assay_cols) := lapply(.SD, as.numeric), .SDcols = assay_cols]
+
+                    # For each row, find the assay with lowest Ct < 40 (dominant)
+                    n_ranks <- 5  # we will also compute top 5 for download
+                    cutoff <- 40
+
+                    # Prepare storage for rank1 and for all ranks
+                    rank1_assay <- character(nrow(dt))
+                    rank1_Ct <- numeric(nrow(dt))
+                    # For full ranking (top 5)
+                    rank_names <- matrix("-", nrow = nrow(dt), ncol = n_ranks)
+                    rank_Ct <- matrix(NA_real_, nrow = nrow(dt), ncol = n_ranks)
+
+                    for (i in 1:nrow(dt)) {
+                        vals <- unlist(dt[i, ..assay_cols])
+                        names_vals <- assay_cols
+                        valid <- !is.na(vals) & vals < cutoff
+                        if (any(valid)) {
+                            valid_vals <- vals[valid]
+                            valid_names <- names_vals[valid]
+                            ord <- order(valid_vals)
+                            top_vals <- valid_vals[ord]
+                            top_names <- valid_names[ord]
+                            k <- min(n_ranks, length(top_vals))
+                            rank_names[i, 1:k] <- top_names[1:k]
+                            rank_Ct[i, 1:k] <- top_vals[1:k]
+                            # rank1
+                            rank1_assay[i] <- top_names[1]
+                            rank1_Ct[i] <- top_vals[1]
+                        } else {
+                            rank1_assay[i] <- "-"
+                            rank1_Ct[i] <- NA
+                        }
+                    }
+
+                    # Add ranking columns to original dt for download
+                    cq_cols <- paste0("rank", 1:n_ranks, "_Cq")
+                    name_cols <- paste0("rank", 1:n_ranks, "_assay")
+                    for (k in 1:n_ranks) {
+                        set(dt, j = cq_cols[k], value = rank_Ct[, k])
+                        set(dt, j = name_cols[k], value = rank_names[, k])
+                    }
+                    # Reorder for download: piaB, then Cq cols, then assay cols, then original assays
+                    download_order <- c(piaB_col, cq_cols, name_cols, assay_cols)
+                    setcolorder(dt, download_order)
+
+                    # Subset for BA: keep rows where rank1_Ct is not NA (i.e., at least one positive assay)
+                    ba_dt <- data.table(
+                        piaB = dt[[piaB_col]],
+                        dominant_Ct = rank1_Ct,
+                        dominant_assay = rank1_assay
+                    )
+                    ba_dt <- na.omit(ba_dt, cols = "dominant_Ct")
+
+                    # Now BA analysis on piaB vs dominant_Ct
+                    dt_ba <- ba_dt[, .(Method1 = piaB, Method2 = dominant_Ct, Serotype = dominant_assay)]
+                    dt_ba <- na.omit(dt_ba)
+                    dt_ba[, mean_val := round((Method1 + Method2) / 2, 2)]
+                    dt_ba[, diff_val := round(Method1 - Method2, 2)]
+                    dt_ba[, condition := Method1 < 40 & Method2 < 40]  # both <40 for BA (but we already have all dominant_Ct <40, piaB may be >=40)
+                    sub <- dt_ba[condition == TRUE]
+                    diffs_all <- sub$diff_val
+                    n <- length(diffs_all)
+
+                    # BA stats (parametric, nonparametric, MAD)
+                    mean_diff <- mean(diffs_all)
+                    sd_diff <- sd(diffs_all)
+                    loa_up_p <- mean_diff + 1.96 * sd_diff
+                    loa_lo_p <- mean_diff - 1.96 * sd_diff
+                    se_bias_p <- sd_diff / sqrt(n)
+                    t_crit <- qt(0.975, n-1)
+                    bias_ci_lo_p <- mean_diff - t_crit * se_bias_p
+                    bias_ci_hi_p <- mean_diff + t_crit * se_bias_p
+                    se_loa_p <- sqrt(3 * sd_diff^2 / n)
+                    loa_up_ci_lo_p <- loa_up_p - t_crit * se_loa_p
+                    loa_up_ci_hi_p <- loa_up_p + t_crit * se_loa_p
+                    loa_lo_ci_lo_p <- loa_lo_p - t_crit * se_loa_p
+                    loa_lo_ci_hi_p <- loa_lo_p + t_crit * se_loa_p
+
+                    median_diff <- median(diffs_all)
+                    loa_up_np <- as.numeric(quantile(diffs_all, 0.975))
+                    loa_lo_np <- as.numeric(quantile(diffs_all, 0.025))
+                    set.seed(42)
+                    B <- 300
+                    boot_median <- boot_loa_up <- boot_loa_lo <- numeric(B)
+                    for (i in 1:B) {
+                        s <- sample(diffs_all, replace = TRUE)
+                        boot_median[i] <- median(s)
+                        boot_loa_up[i] <- as.numeric(quantile(s, 0.975))
+                        boot_loa_lo[i] <- as.numeric(quantile(s, 0.025))
+                    }
+                    bias_ci_lo_np <- as.numeric(quantile(boot_median, 0.025))
+                    bias_ci_hi_np <- as.numeric(quantile(boot_median, 0.975))
+                    loa_up_ci_lo_np <- as.numeric(quantile(boot_loa_up, 0.025))
+                    loa_up_ci_hi_np <- as.numeric(quantile(boot_loa_up, 0.975))
+                    loa_lo_ci_lo_np <- as.numeric(quantile(boot_loa_lo, 0.025))
+                    loa_lo_ci_hi_np <- as.numeric(quantile(boot_loa_lo, 0.975))
+
+                    MAD_val <- median(abs(diffs_all - median_diff))
+                    loa_up_mad <- median_diff + 1.96 * MAD_val
+                    loa_lo_mad <- median_diff - 1.96 * MAD_val
+                    boot_median2 <- boot_loa_up_mad <- boot_loa_lo_mad <- numeric(B)
+                    for (i in 1:B) {
+                        s <- sample(diffs_all, replace = TRUE)
+                        md <- median(s)
+                        mad_i <- median(abs(s - md))
+                        boot_median2[i] <- md
+                        boot_loa_up_mad[i] <- md + 1.96 * mad_i
+                        boot_loa_lo_mad[i] <- md - 1.96 * mad_i
+                    }
+                    bias_ci_lo_mad <- as.numeric(quantile(boot_median2, 0.025))
+                    bias_ci_hi_mad <- as.numeric(quantile(boot_median2, 0.975))
+                    loa_up_ci_lo_mad <- as.numeric(quantile(boot_loa_up_mad, 0.025))
+                    loa_up_ci_hi_mad <- as.numeric(quantile(boot_loa_up_mad, 0.975))
+                    loa_lo_ci_lo_mad <- as.numeric(quantile(boot_loa_lo_mad, 0.025))
+                    loa_lo_ci_hi_mad <- as.numeric(quantile(boot_loa_lo_mad, 0.975))
+
+                    prop_model <- lm(diff_val ~ mean_val, data = sub)
+                    prop_slope <- coef(prop_model)[2]
+                    prop_intercept <- coef(prop_model)[1]
+                    prop_pval <- summary(prop_model)$coefficients[2,4]
+
+                    # Kappa (binary positive: <40)
+                    dt_bin <- copy(dt_ba)
+                    dt_bin[, pos1 := ifelse(Method1 < 40, 1, 0)]
+                    dt_bin[, pos2 := ifelse(Method2 < 40, 1, 0)]
+                    tab <- table(factor(dt_bin$pos1, levels=c(0,1)), factor(dt_bin$pos2, levels=c(0,1)))
+                    dn <- tab[1,1]
+                    kappa_cohen_text <- ""; kappa_light1_text <- ""; kappa_light2_text <- ""
+                    if (is.na(dn) || dn < 2) {
+                        kappa_cohen_text <- "KAPPA_SKIP: insufficient double negatives"
+                        kappa_light1_text <- "KAPPA_SKIP"
+                        kappa_light2_text <- "KAPPA_SKIP"
+                    } else {
+                        N <- sum(tab)
+                        po <- sum(diag(tab)) / N
+                        row_m <- rowSums(tab)/N
+                        col_m <- colSums(tab)/N
+                        pe_cohen <- sum(row_m * col_m)
+                        k_cohen <- (po - pe_cohen) / (1 - pe_cohen)
+                        se_cohen <- sqrt((po * (1 - po)) / (N * (1 - pe_cohen)^2))
+                        ci_lo_c <- max(k_cohen - 1.96*se_cohen, -1)
+                        ci_hi_c <- min(k_cohen + 1.96*se_cohen, 1)
+                        kappa_cohen_text <- paste0("Cohen's kappa = ", round(k_cohen,3), " (95% CI: ", round(ci_lo_c,3), "–", round(ci_hi_c,3), ")")
+                        pe_light1 <- sum(row_m^2)
+                        k_light1 <- (po - pe_light1) / (1 - pe_light1)
+                        se_light1 <- sqrt((po * (1 - po)) / (N * (1 - pe_light1)^2))
+                        ci_lo_l1 <- max(k_light1 - 1.96*se_light1, -1)
+                        ci_hi_l1 <- min(k_light1 + 1.96*se_light1, 1)
+                        kappa_light1_text <- paste0("Light's kappa (ref: piaB) = ", round(k_light1,3), " (95% CI: ", round(ci_lo_l1,3), "–", round(ci_hi_l1,3), ")")
+                        pe_light2 <- sum(col_m^2)
+                        k_light2 <- (po - pe_light2) / (1 - pe_light2)
+                        se_light2 <- sqrt((po * (1 - po)) / (N * (1 - pe_light2)^2))
+                        ci_lo_l2 <- max(k_light2 - 1.96*se_light2, -1)
+                        ci_hi_l2 <- min(k_light2 + 1.96*se_light2, 1)
+                        kappa_light2_text <- paste0("Light's kappa (ref: dominant) = ", round(k_light2,3), " (95% CI: ", round(ci_lo_l2,3), "–", round(ci_hi_l2,3), ")")
+                    }
+
+                    # ICC
+                    icc_result <- tryCatch({
+                        icc_dt <- dt_ba[, .(Method1, Method2)]
+                        icc_dt <- na.omit(icc_dt)
+                        icc_dt <- icc_dt[Method1 < 40 & Method2 < 40]
+                        n_icc <- nrow(icc_dt)
+                        if (n_icc < 3) stop("Need at least 3 pairs")
+                        if (sd(icc_dt$Method1) == 0 || sd(icc_dt$Method2) == 0) stop("No variability")
+                        dt_long <- melt(icc_dt, id.vars = NULL, measure.vars = c("Method1","Method2"),
+                                        variable.name = "method", value.name = "value")
+                        dt_long[, subject := rep(1:n_icc, times = 2)]
+                        aov_m <- aov(value ~ factor(method) + factor(subject), data = dt_long)
+                        atab <- summary(aov_m)[[1]]
+                        MS_s <- atab["factor(subject)", "Mean Sq"]
+                        MS_e <- atab["Residuals", "Mean Sq"]
+                        if (MS_s <= MS_e) { "ICC = 0.0000" }
+                        else {
+                            ICC <- (MS_s - MS_e) / (MS_s + MS_e)
+                            df_s <- n_icc - 1; df_e <- n_icc - 1
+                            F_obs <- MS_s / MS_e
+                            F_lo <- F_obs / qf(0.975, df_s, df_e)
+                            F_hi <- F_obs * qf(0.975, df_e, df_s)
+                            LCI <- (F_lo - 1) / (F_lo + 1)
+                            UCI <- (F_hi - 1) / (F_hi + 1)
+                            paste0("ICC = ", round(ICC,3), " (95% CI: ", round(LCI,3), "–", round(UCI,3), ")")
+                        }
+                    }, error = function(e) paste("ICC error:", e$message))
+
+                    toJSON(list(
+                        ba_means = dt_ba$mean_val,
+                        ba_diffs = dt_ba$diff_val,
+                        ba_colors = dt_ba$Serotype,
+                        ba_condition = dt_ba$condition,
+                        method1_name = piaB_col,
+                        method2_name = "Dominant assay",
+                        parametric = list(
+                            bias = mean_diff, loa_upper = loa_up_p, loa_lower = loa_lo_p,
+                            bias_ci_low = bias_ci_lo_p, bias_ci_high = bias_ci_hi_p,
+                            loa_upper_ci_low = loa_up_ci_lo_p, loa_upper_ci_high = loa_up_ci_hi_p,
+                            loa_lower_ci_low = loa_lo_ci_lo_p, loa_lower_ci_high = loa_lo_ci_hi_p,
+                            prop_slope = prop_slope, prop_intercept = prop_intercept, prop_pval = prop_pval
+                        ),
+                        nonparametric = list(
+                            bias = median_diff, loa_upper = loa_up_np, loa_lower = loa_lo_np,
+                            bias_ci_low = bias_ci_lo_np, bias_ci_high = bias_ci_hi_np,
+                            loa_upper_ci_low = loa_up_ci_lo_np, loa_upper_ci_high = loa_up_ci_hi_np,
+                            loa_lower_ci_low = loa_lo_ci_lo_np, loa_lower_ci_high = loa_lo_ci_hi_np,
+                            prop_slope = prop_slope, prop_intercept = prop_intercept, prop_pval = prop_pval
+                        ),
+                        mad = list(
+                            bias = median_diff, loa_upper = loa_up_mad, loa_lower = loa_lo_mad,
+                            bias_ci_low = bias_ci_lo_mad, bias_ci_high = bias_ci_hi_mad,
+                            loa_upper_ci_low = loa_up_ci_lo_mad, loa_upper_ci_high = loa_up_ci_hi_mad,
+                            loa_lower_ci_low = loa_lo_ci_lo_mad, loa_lower_ci_high = loa_lo_ci_hi_mad,
+                            prop_slope = prop_slope, prop_intercept = prop_intercept, prop_pval = prop_pval
+                        ),
+                        kappa_cohen = kappa_cohen_text,
+                        kappa_light1 = kappa_light1_text,
+                        kappa_light2 = kappa_light2_text,
+                        icc = icc_result,
+                        ranked_data = as.data.frame(dt)   # full ranked table for download
+                    ), auto_unbox = TRUE, digits = 8)
+                `;
+
+                const rawResult = await webR.evalR(analysisScript);
+                const jsonStr = await rawResult.toString();
+                const full = JSON.parse(jsonStr);
+
+                // Store ranked data for download
+                rankedFullData = full.ranked_data;
+
+                // BA data
+                columnNames = { m1: full.method1_name, m2: full.method2_name };
+                columnNamesDisplay.textContent = `Method A (piaB): ${columnNames.m1} | Method B (dominant assay): ${columnNames.m2}`;
+                allStats = {
+                    parametric: full.parametric,
+                    nonparametric: full.nonparametric,
+                    mad: full.mad
+                };
+                plotData = {
+                    means_all: full.ba_means,
+                    diffs_all: full.ba_diffs,
+                    condition: full.ba_condition,
+                    colors: full.ba_colors
+                };
+                kappaTexts = {
+                    cohen: full.kappa_cohen || '',
+                    light1: full.kappa_light1 || '',
+                    light2: full.kappa_light2 || ''
+                };
+                iccText = full.icc || 'ICC not computed';
+                iccDiv.textContent = iccText;
+                updateKappaDisplay();
+
+                mainContainer.style.display = 'flex';
+                currentMethod = methodSelect.value;
+                renderPlot();
+                showProgress(100, 'Analysis complete.');
+
+            } catch (err) {
+                console.error(err);
+                showProgress(0, 'Error: ' + err.message);
+                alert('Processing failed: ' + err.message);
+                mainContainer.style.display = 'none';
+            } finally {
+                hideProgress();
+            }
+        });
+
+        // Download ranked CSV
+        downloadRankedBtn.addEventListener('click', () => {
+            if (!rankedFullData) return;
+            const columns = Object.keys(rankedFullData[0]);
+            const csvRows = [columns.join(',')];
+            for (const row of rankedFullData) {
+                const values = columns.map(col => {
+                    let val = row[col];
+                    if (val === null || val === undefined) val = '';
+                    if (typeof val === 'string' && (val.includes(',') || val.includes('"')))
+                        val = '"' + val.replace(/"/g, '""') + '"';
+                    return val;
+                });
+                csvRows.push(values.join(','));
+            }
+            const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.href = url;
+            link.setAttribute('download', 'ranked_serotypes.csv');
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        });
+    </script>
+</body>
+</html>
