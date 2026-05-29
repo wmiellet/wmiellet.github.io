@@ -28,7 +28,7 @@
     </style>
 </head>
 <body>
-    <h1>Serotype Ranking & Bland‑Altman Analysis v0.3 </h1>
+    <h1>Serotype Ranking & Bland‑Altman Analysis v0.4 </h1>
     <p>Upload a CSV (first column = sample ID). Assays with Ct ≥ 40 are considered negative and ignored in ranking.<br>
     Exclude unwanted assays, then run ranking. Select a reference assay and the ranks to compare.</p>
 
@@ -126,7 +126,7 @@
         let Rready = false;
         let csvFileName = '/home/data.csv';
         let assayNames = [];
-        let rankingResult = null;      // will store ranked data (as JSON string or object)
+        let rankingResult = null;      // will store ranked data (as JSON object)
 
         function showProgress(pct, msg) {
             progCont.style.display = 'block';
@@ -205,7 +205,7 @@
                 assayChecklistDiv.innerHTML = '';
                 assayNames.forEach(assay => {
                     const label = document.createElement('label');
-                    label.innerHTML = `<input type="checkbox" class="excludeCheck" value="${assay}"> ${assay}`;
+                    label.innerHTML = `<input type="checkbox" class="excludeCheck" value="${assay.replace(/"/g, '&quot;')}"> ${assay}`;
                     assayChecklistDiv.appendChild(label);
                 });
                 // Populate reference dropdown (include first column and all assays)
@@ -229,14 +229,14 @@
         // Ranking function (respects excluded assays) using the CSV file
         async function runRanking() {
             if (!Rready) return;
-            const excluded = Array.from(document.querySelectorAll('.excludeCheck:checked')).map(cb => cb.value);
-            const excludedJson = JSON.stringify(excluded);
+            const excluded = Array.from(document.querySelectorAll('.excludeCheck:checked')).map(cb => `"${cb.value.replace(/"/g, '\\"')}"`);
+            const excludedRVec = excluded.length ? `c(${excluded.join(',')})` : 'NULL';
             showProgress(40, 'Ranking serotypes (Ct<40 only)...');
             try {
                 const script = `
                     library(data.table)
                     dt <- fread("${csvFileName}", header = TRUE)
-                    assay_cols <- setdiff(names(dt)[-1], ${excludedJson})
+                    assay_cols <- setdiff(names(dt)[-1], ${excludedRVec})
                     # Ensure numeric
                     dt[, (assay_cols) := lapply(.SD, as.numeric), .SDcols = assay_cols]
                     n_ranks <- 5
@@ -299,11 +299,11 @@
             const showCIs = showCI.checked;
 
             // Send rankingResult (as JSON) and parameters to R for BA calculation
-            const dataJson = JSON.stringify(rankingResult);
+            const dataJson = JSON.stringify(rankingResult).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             const ranksArray = selectedRanks;
             const script = `
                 library(data.table)
-                dt <- as.data.table(jsonlite::fromJSON('${dataJson.replace(/'/g, "\\'")}'))
+                dt <- as.data.table(jsonlite::fromJSON('${dataJson}'))
                 ref_col <- "${refAssay}"
                 rank_cols <- paste0("rank", c(${ranksArray.join(',')}), "_Cq")
                 ranks <- c(${ranksArray.join(',')})
