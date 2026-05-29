@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bland‑Altman Plot (Cq Values) v12.0</title>
+    <title>Bland‑Altman Plot (Cq Values) v13.0 </title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -15,8 +15,8 @@
     </style>
 </head>
 <body>
-    <h1>Bland‑Altman Plot (Cq Values) v12.0</h1>
-    <p>Upload a CSV with a header. The first two columns must be numeric Cq values.</p>
+    <h1>Bland‑Altman Plot (Cq Values) v13.0 </h1>
+    <p>Upload a CSV with a header. The first two columns must be numeric Cq values. (Row names are handled automatically.)</p>
 
     <input type="file" id="csvFile" accept=".csv" />
 
@@ -123,20 +123,31 @@
                 showProgress(60, 'Computing Bland‑Altman statistics (Cq < 40)…');
                 chartDiv.innerHTML = '';
 
-                // R: compute everything, return JSON
+                // R: read CSV, automatically handle row names, compute statistics
                 const result = await webR.evalR(`
                     library(data.table)
                     library(jsonlite)
 
                     dt <- fread("/home/data.csv", header = TRUE)
-                    setnames(dt, 1:2, c("Method1", "Method2"))
-                    dt <- na.omit(dt[, .(Method1, Method2)])
+
+                    # Detect if the first column is row names (empty header or sequential integers)
+                    cn <- names(dt)
+                    if (ncol(dt) >= 3 && (cn[1] == "" || cn[1] == "V1")) {
+                        # Likely row names – use columns 2 and 3
+                        cols_use <- 2:3
+                    } else {
+                        # Use the first two columns
+                        cols_use <- 1:2
+                    }
+
+                    dt <- dt[, ..cols_use]
+                    setnames(dt, c("Method1", "Method2"))
+                    dt <- na.omit(dt)
 
                     dt[, mean_val := (Method1 + Method2) / 2]
                     dt[, diff_val := Method1 - Method2]
                     dt[, condition := Method1 < 40 & Method2 < 40]
 
-                    # Subset for statistics
                     sub <- dt[condition == TRUE]
                     median_val <- median(sub$diff_val)
                     MAD_val <- median(abs(sub$diff_val - median_val))
@@ -153,13 +164,12 @@
                     ), auto_unbox = TRUE)
                 `);
 
-                // Parse the JSON string from webR
                 const jsonStr = await result.toString();
                 const d = JSON.parse(jsonStr);
 
                 showProgress(80, 'Rendering plot…');
 
-                // ---- Separate the two groups ----
+                // ---- Separate groups ----
                 const xGreen = [], yGreen = [], xGrey = [], yGrey = [];
                 for (let i = 0; i < d.condition.length; i++) {
                     const xi = d.means_all[i];
@@ -173,143 +183,58 @@
                     }
                 }
 
-                // ---- Trace: points where both methods < 40 ----
+                // ---- Point traces ----
                 const traceGreen = {
                     x: xGreen,
                     y: yGreen,
                     type: 'scatter',
                     mode: 'markers',
-                    marker: {
-                        size: 8,               // ~ size 3 in R
-                        color: 'seagreen1',
-                        line: { color: 'seagreen', width: 1.5 }
-                    },
+                    marker: { size: 8, color: 'seagreen1', line: { color: 'seagreen', width: 1.5 } },
                     opacity: 0.8,
                     name: 'Both < 40',
                     showlegend: false
                 };
 
-                // ---- Trace: all other points ----
                 const traceGrey = {
                     x: xGrey,
                     y: yGrey,
                     type: 'scatter',
                     mode: 'markers',
-                    marker: {
-                        size: 6,
-                        color: 'grey',
-                        line: { color: 'darkgrey', width: 1.5 }
-                    },
+                    marker: { size: 6, color: 'grey', line: { color: 'darkgrey', width: 1.5 } },
                     opacity: 0.4,
                     name: '≥ 40',
                     showlegend: false
                 };
 
+                const xMin = 20, xMax = 42;
+
                 // ---- Horizontal lines ----
-                const xMin = 20, xMax = 42;   // fixed axis limits
+                const lines = [
+                    { x: [xMin, xMax], y: [d.median, d.median], type: 'scatter', mode: 'lines',
+                      line: { color: 'black', width: 1 }, opacity: 0.5, showlegend: false },
+                    { x: [xMin, xMax], y: [d.median + 2, d.median + 2], type: 'scatter', mode: 'lines',
+                      line: { color: 'red', width: 2 }, showlegend: false },
+                    { x: [xMin, xMax], y: [d.median - 2, d.median - 2], type: 'scatter', mode: 'lines',
+                      line: { color: 'red', width: 2 }, showlegend: false },
+                    { x: [xMin, xMax], y: [d.loa_upper, d.loa_upper], type: 'scatter', mode: 'lines',
+                      line: { color: 'black', width: 1, dash: 'dash' }, opacity: 0.5, showlegend: false },
+                    { x: [xMin, xMax], y: [d.loa_lower, d.loa_lower], type: 'scatter', mode: 'lines',
+                      line: { color: 'black', width: 1, dash: 'dash' }, opacity: 0.5, showlegend: false },
+                    { x: [xMin, xMax], y: [0, 0], type: 'scatter', mode: 'lines',
+                      line: { color: 'black', width: 0.5 }, opacity: 0.25, showlegend: false }
+                ];
 
-                const lines = [];
-
-                // median line (solid black, 0.5 alpha)
-                lines.push({
-                    x: [xMin, xMax],
-                    y: [d.median, d.median],
-                    type: 'scatter',
-                    mode: 'lines',
-                    line: { color: 'black', width: 1, dash: 'solid' },
-                    opacity: 0.5,
-                    name: 'Median',
-                    showlegend: false
-                });
-
-                // median + 2 (solid red)
-                lines.push({
-                    x: [xMin, xMax],
-                    y: [d.median + 2, d.median + 2],
-                    type: 'scatter',
-                    mode: 'lines',
-                    line: { color: 'red', width: 2 },
-                    name: 'Median + 2',
-                    showlegend: false
-                });
-
-                // median - 2 (solid red)
-                lines.push({
-                    x: [xMin, xMax],
-                    y: [d.median - 2, d.median - 2],
-                    type: 'scatter',
-                    mode: 'lines',
-                    line: { color: 'red', width: 2 },
-                    name: 'Median - 2',
-                    showlegend: false
-                });
-
-                // LOA upper (dashed black, 0.5 alpha)
-                lines.push({
-                    x: [xMin, xMax],
-                    y: [d.loa_upper, d.loa_upper],
-                    type: 'scatter',
-                    mode: 'lines',
-                    line: { color: 'black', width: 1, dash: 'dash' },
-                    opacity: 0.5,
-                    name: 'Upper LOA',
-                    showlegend: false
-                });
-
-                // LOA lower (dashed black, 0.5 alpha)
-                lines.push({
-                    x: [xMin, xMax],
-                    y: [d.loa_lower, d.loa_lower],
-                    type: 'scatter',
-                    mode: 'lines',
-                    line: { color: 'black', width: 1, dash: 'dash' },
-                    opacity: 0.5,
-                    name: 'Lower LOA',
-                    showlegend: false
-                });
-
-                // zero line (solid black, thin, 0.25 alpha)
-                lines.push({
-                    x: [xMin, xMax],
-                    y: [0, 0],
-                    type: 'scatter',
-                    mode: 'lines',
-                    line: { color: 'black', width: 0.5 },
-                    opacity: 0.25,
-                    name: 'Zero',
-                    showlegend: false
-                });
-
-                // ---- Layout ----
                 const layout = {
                     title: 'Conditional dependence between genetic markers',
-                    xaxis: {
-                        title: 'Mean of two measurements [Cq]',
-                        range: [20, 42],
-                        dtick: 5,
-                        tickvals: [20, 25, 30, 35, 40],
-                        showgrid: false,
-                        zeroline: false
-                    },
-                    yaxis: {
-                        title: 'Difference (marker A - marker B [Cq])',
-                        range: [-20, 20],
-                        dtick: 5,
-                        tickvals: [-20, -15, -10, -5, 0, 5, 10, 15, 20],
-                        showgrid: false,
-                        zeroline: false
-                    },
-                    width: 800,
-                    height: 350,
+                    xaxis: { title: 'Mean of two measurements [Cq]', range: [20, 42], dtick: 5, showgrid: false },
+                    yaxis: { title: 'Difference (marker A - marker B [Cq])', range: [-20, 20], dtick: 5, showgrid: false },
+                    width: 800, height: 350,
                     margin: { l: 50, r: 20, b: 50, t: 40 },
                     hovermode: 'closest',
-                    plot_bgcolor: 'white',
-                    paper_bgcolor: 'white'
+                    plot_bgcolor: 'white', paper_bgcolor: 'white'
                 };
 
-                // Combine all traces
-                const allTraces = [traceGreen, traceGrey, ...lines];
-                Plotly.newPlot('chart', allTraces, layout);
+                Plotly.newPlot('chart', [traceGreen, traceGrey, ...lines], layout);
 
                 showProgress(100, 'Plot ready!');
             } catch (err) {
