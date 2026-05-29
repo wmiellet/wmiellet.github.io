@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bland‑Altman Plot (Cq Values) v10.0</title>
+    <title>Bland‑Altman Plot (Cq Values) v11.0 </title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -15,7 +15,7 @@
     </style>
 </head>
 <body>
-    <h1>Bland‑Altman Plot (Cq Values) v10.0</h1>
+    <h1>Bland‑Altman Plot (Cq Values) v11.0</h1>
     <p>Upload a CSV with a header. The first two columns must be numeric Cq values.</p>
 
     <input type="file" id="csvFile" accept=".csv" />
@@ -51,17 +51,17 @@
         const webR = new WebR();
         let Rready = false;
 
-        // ---- Initialise R (only data.table needed) ----
+        // ---- Initialise R (install data.table + jsonlite) ----
         (async () => {
             try {
                 showProgress(5, 'Starting R…');
                 await webR.init();
 
-                showProgress(20, 'Installing data.table…');
-                await webR.evalR('webr::install("data.table")');
+                showProgress(20, 'Installing packages (data.table, jsonlite)…');
+                await webR.evalR('webr::install(c("data.table", "jsonlite"))');
 
-                showProgress(80, 'Loading library…');
-                await webR.evalR('library(data.table)');
+                showProgress(80, 'Loading libraries…');
+                await webR.evalR('library(data.table); library(jsonlite)');
 
                 Rready = true;
                 showProgress(100, 'Ready. Please upload a CSV file.');
@@ -126,9 +126,10 @@
                 showProgress(60, 'Calculating Bland‑Altman statistics in R…');
                 chartDiv.innerHTML = '';
 
-                // R: compute Bland‑Altman and return a list of vectors
+                // R: compute Bland‑Altman, return JSON string
                 const result = await webR.evalR(`
                     library(data.table)
+                    library(jsonlite)
                     dt <- fread("/home/data.csv", header = TRUE)
                     setnames(dt, 1:2, c("Method1", "Method2"))
                     dt <- na.omit(dt[, .(Method1, Method2)])
@@ -140,17 +141,18 @@
                     upper_loa <- avg_diff + 1.96 * sd_diff
                     lower_loa <- avg_diff - 1.96 * sd_diff
 
-                    list(
+                    toJSON(list(
                         means = dt$means,
                         diffs = dt$diffs,
                         avg_diff = avg_diff,
                         upper_loa = upper_loa,
                         lower_loa = lower_loa
-                    )
+                    ), auto_unbox = TRUE)
                 `);
 
-                // Convert R list to plain JavaScript object
-                const plotData = await result.toJs();
+                // webR returns a character vector; get the string
+                const jsonStr = await result.toString();
+                const plotData = JSON.parse(jsonStr);
 
                 showProgress(80, 'Rendering Bland‑Altman chart…');
 
