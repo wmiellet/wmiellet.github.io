@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bland‑Altman Plot & ICC (Cq Values) v20.2</title>
+    <title>Bland‑Altman Plot & ICC (Cq Values) v20.4</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -34,7 +34,7 @@
     </style>
 </head>
 <body>
-    <h1>Bland‑Altman Plot (Cq Values) v20.2</h1>
+    <h1>Bland‑Altman Plot (Cq Values) v20.4</h1>
     <p>Upload a CSV with a header. The first two columns must be numeric Cq values. (Row names are handled automatically.)</p>
 
     <input type="file" id="csvFile" accept=".csv" />
@@ -214,7 +214,7 @@
             return new TextEncoder().encode(str);
         }
 
-        // ---- Render main Bland‑Altman plot ----
+        // ---- Render main Bland‑Altman plot (with dynamic zone labels) ----
         function renderPlot() {
             if (!allStats || !plotData) return;
 
@@ -247,6 +247,11 @@
                     opacity: 0.4, name: '≥ 40', showlegend: false
                 });
             }
+
+            // Determine visible y-range for zone labels
+            const allY = cbGrey.checked ? [...yGreen, ...yGrey] : yGreen;
+            const yMax = Math.max(...allY);
+            const yMin = Math.min(...allY);
 
             const xMin = 20, xMax = 42;
 
@@ -303,36 +308,49 @@
 
             if (cbZero.checked) addLine(0, 'black', 'solid', 0.5, 0.25, 'LoE');
 
+            // ---- Zone labels (data-relative, dynamic) ----
+            const annotations = [];
+            if (cbZone.checked && allY.length > 0) {
+                // Top label: just above the highest data point
+                annotations.push({
+                    x: 0.98, y: yMax + 1.5,    // 1.5 units above max
+                    xref: 'paper', yref: 'y',
+                    text: `${columnNames.m1} > ${columnNames.m2}`,
+                    showarrow: false,
+                    font: { size: 10, color: '#888' },
+                    xanchor: 'right', yanchor: 'bottom'
+                });
+                // Bottom label: just below the lowest data point
+                annotations.push({
+                    x: 0.98, y: yMin - 1.5,
+                    xref: 'paper', yref: 'y',
+                    text: `${columnNames.m2} > ${columnNames.m1}`,
+                    showarrow: false,
+                    font: { size: 10, color: '#888' },
+                    xanchor: 'right', yanchor: 'top'
+                });
+                // Equality label: slightly above the zero line
+                annotations.push({
+                    x: 0.98, y: 0.5,            // 0.5 units above zero (data units)
+                    xref: 'paper', yref: 'y',
+                    text: `${columnNames.m1} = ${columnNames.m2}`,
+                    showarrow: false,
+                    font: { size: 10, color: '#888' },
+                    xanchor: 'right', yanchor: 'middle'
+                });
+            }
+
             const layout = {
                 title: 'Cq agreement plot',
                 xaxis: { title: 'Mean of two measurements [Cq]', range: [20, 42], dtick: 5, showgrid: false,
                          zeroline: false, showline: true, linecolor: 'black', linewidth: 1 },
-                yaxis: { title: 'Difference (marker A - marker B [Cq])', range: [-20, 20], dtick: 5, showgrid: false,
+                yaxis: { title: 'Difference (marker A - marker B [Cq])', showgrid: false,
                          zeroline: false, showline: true, linecolor: 'black', linewidth: 1 },
                 width: 650, height: 380,
                 margin: { l: 50, r: 20, b: 50, t: 40 },
                 hovermode: 'closest',
                 plot_bgcolor: 'white', paper_bgcolor: 'white',
-                annotations: cbZone.checked ? [
-                    {
-                        x: 0.98, y: 0.95, xref: 'paper', yref: 'paper',
-                        text: `${columnNames.m1} > ${columnNames.m2}`,
-                        showarrow: false, font: { size: 10, color: '#888' },
-                        xanchor: 'right', yanchor: 'top'
-                    },
-                    {
-                        x: 0.98, y: 0.05, xref: 'paper', yref: 'paper',
-                        text: `${columnNames.m2} > ${columnNames.m1}`,
-                        showarrow: false, font: { size: 10, color: '#888' },
-                        xanchor: 'right', yanchor: 'bottom'
-                    },
-                    {
-                        x: 0.98, y: 0.50, xref: 'paper', yref: 'paper',
-                        text: `${columnNames.m1} = ${columnNames.m2}`,
-                        showarrow: false, font: { size: 10, color: '#888' },
-                        xanchor: 'right', yanchor: 'middle'
-                    }
-                ] : []
+                annotations: annotations
             };
 
             Plotly.newPlot('chart', traces, layout);
@@ -493,7 +511,6 @@
                     } else {
                         cols_use <- 1:2
                     }
-                    # Save original column names before renaming
                     method1_name <- cn[cols_use[1]]
                     method2_name <- cn[cols_use[2]]
 
@@ -511,7 +528,7 @@
                     diffs_all <- sub$diff_val
                     n <- length(diffs_all)
 
-                    # ----- BA stats (same as before) -----
+                    # ----- BA stats -----
                     mean_diff <- mean(diffs_all)
                     sd_diff <- sd(diffs_all)
                     loa_up_p <- mean_diff + 1.96 * sd_diff
@@ -628,7 +645,6 @@
                 const jsonStr = await rawResult.toString();
                 const fullData = JSON.parse(jsonStr);
 
-                // Store original column names
                 columnNames = {
                     m1: fullData.method1_name || 'Method1',
                     m2: fullData.method2_name || 'Method2'
