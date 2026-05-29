@@ -1,0 +1,50 @@
+library(data.table)
+
+rank_assays <- function(dt, 
+                        assay_cols = NULL, 
+                        n_ranks = 5, 
+                        cutoff = 40) {
+  # If assay columns not specified, use all columns except the first (piaB)
+  if (is.null(assay_cols)) {
+    assay_cols <- names(dt)[-1]
+  }
+  
+  # Ensure all assay columns are numeric
+  dt[, (assay_cols) := lapply(.SD, as.numeric), .SDcols = assay_cols]
+  
+  # For each row, get indices of n_ranks smallest values (ties -> first encountered)
+  mat <- as.matrix(dt[, ..assay_cols])
+  n_rows <- nrow(mat)
+  
+  # Pre‑allocate matrices for results
+  rank_names <- matrix(NA_character_, nrow = n_rows, ncol = n_ranks)
+  rank_values <- matrix(NA_real_, nrow = n_rows, ncol = n_ranks)
+  
+  for (i in seq_len(n_rows)) {
+    row_vals <- mat[i, ]
+    # Order by value (NA placed last)
+    o <- order(row_vals, na.last = TRUE)
+    # Take first n_ranks indices
+    top_idx <- o[seq_len(min(n_ranks, length(o)))]
+    # Column names
+    rank_names[i, seq_along(top_idx)] <- assay_cols[top_idx]
+    # Actual Ct values
+    rank_values[i, seq_along(top_idx)] <- row_vals[top_idx]
+  }
+  
+  # Add columns to the data.table
+  for (k in seq_len(n_ranks)) {
+    # Assay name column: replace with '-' if Ct >= cutoff or NA
+    name_col <- paste0("rank", k, "_assay")
+    val_col  <- paste0("rank", k, "_Cq")
+    
+    dt[, (name_col) := rank_names[, k]]
+    dt[, (val_col)  := rank_values[, k]]
+    
+    # Apply cutoff: if value >= cutoff or is NA, set assay name to '-'
+    dt[get(val_col) >= cutoff | is.na(get(val_col)), (name_col) := "-"]
+    # (Ct values remain numeric, even if above cutoff)
+  }
+  
+  return(dt)
+}
