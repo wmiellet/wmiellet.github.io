@@ -28,7 +28,7 @@
     </style>
 </head>
 <body>
-    <h1>Serotype Ranking & Bland‑Altman (multi‑rank overlay) v0.8 </h1>
+    <h1>Serotype Ranking & Bland‑Altman (multi‑rank overlay) v0.10</h1>
     <p>Upload CSV (first column = sample ID). Assays with Ct ≥ 40 are ignored.<br>
     Choose assays to exclude, then rank. Select a reference assay, a primary rank for BA statistics, and optionally overlay other ranks as coloured points.</p>
 
@@ -243,7 +243,6 @@
             if (!currentData) return;
             const excluded = Array.from(document.querySelectorAll('.excludeCheck:checked')).map(cb => cb.value);
             const excludedR = excluded.length ? `c(${excluded.map(s => `"${s.replace(/"/g, '\\"')}"`).join(', ')})` : 'c()';
-            // Serialize currentData to a JSON string, escape backticks and backslashes for embedding in template literal
             const dataJson = JSON.stringify(currentData).replace(/\\/g, '\\\\').replace(/`/g, '\\`');
             showProgress(40, 'Ranking serotypes (Ct<40 only)...');
             try {
@@ -298,7 +297,7 @@
             }
         }
 
-        // Bland‑Altman: compute only for primary rank, overlay points from selected ranks
+        // Bland‑Altman: embed rankingResult as JSON literal
         async function updateBlandAltman() {
             if (!rankingResult) return;
             const refAssay = refSelect.value;
@@ -315,12 +314,15 @@
             const margin = parseFloat(aprioriMarginInput.value) || 0;
             const showCIs = showCI.checked;
 
+            // Serialize rankingResult to JSON and escape for embedding
+            const rankingJson = JSON.stringify(rankingResult).replace(/\\/g, '\\\\').replace(/`/g, '\\`');
             const primaryRankCol = `rank${primaryRank}_Cq`;
             const allRankCols = showRanks.map(r => `rank${r}_Cq`);
             const script = `
                 library(data.table)
                 library(jsonlite)
-                dt <- as.data.table(rankingResult)
+                ranking_json <- '${rankingJson}'
+                dt <- as.data.table(fromJSON(ranking_json))
                 ref_col <- "${refAssay}"
                 primary_rank_col <- "${primaryRankCol}"
                 all_rank_cols <- c(${allRankCols.map(c => `"${c}"`).join(',')})
