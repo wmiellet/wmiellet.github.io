@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bland‑Altman Plot & ICC (Cq Values) v20.1</title>
+    <title>Bland‑Altman Plot & ICC (Cq Values) v20.2</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -22,6 +22,7 @@
         #statsDisplay { margin-top: 12px; padding: 8px; background: #fff; border: 1px solid #eee;
                         border-radius: 4px; line-height: 1.6; }
         #statsDisplay span { font-weight: bold; }
+        #columnNamesDisplay { margin-bottom: 10px; font-size: 13px; color: #555; }
         #chart { width: 100%; height: 380px; }
         .agreement-stat { margin-top: 10px; font-size: 14px; color: #666; }
         .diagnostic-plot { width: 100%; height: 350px; margin-bottom: 20px; }
@@ -33,7 +34,7 @@
     </style>
 </head>
 <body>
-    <h1>Bland‑Altman Plot (Cq Values) v20.1</h1>
+    <h1>Bland‑Altman Plot (Cq Values) v20.2</h1>
     <p>Upload a CSV with a header. The first two columns must be numeric Cq values. (Row names are handled automatically.)</p>
 
     <input type="file" id="csvFile" accept=".csv" />
@@ -47,6 +48,7 @@
 
     <div id="mainContainer" style="display:none;">
         <div id="chartContainer">
+            <div id="columnNamesDisplay"></div>
             <div id="chart"></div>
             <div id="iccResult" class="agreement-stat"></div>
             <div id="kappaResult" class="agreement-stat"></div>
@@ -72,6 +74,7 @@
             <label><input type="checkbox" id="showGreyPoints" checked> Show single pos. & double neg.</label>
             <label><input type="checkbox" id="showZero" checked> Show zero line</label>
             <label><input type="checkbox" id="showProportionality"> Show proportionality line</label>
+            <label><input type="checkbox" id="showZoneLabels"> Show zone labels</label>
             <label><input type="checkbox" id="showCorrelation" checked> Show correlation plot</label>
             <button id="toggleDiagBtn" style="margin-top:10px; width:100%;">Show diagnostic plots</button>
             <div id="statsDisplay">Upload data to see statistics.</div>
@@ -112,41 +115,44 @@
         import { WebR } from 'https://webr.r-wasm.org/v0.4.0/webr.mjs';
 
         // ---- DOM elements ----
-        const fileInput        = document.getElementById('csvFile');
-        const progBar          = document.getElementById('progressBar');
-        const statusMsg        = document.getElementById('statusMsg');
-        const progCont         = document.getElementById('progressContainer');
-        const mainContainer    = document.getElementById('mainContainer');
-        const chartDiv         = document.getElementById('chart');
-        const iccDiv           = document.getElementById('iccResult');
-        const kappaDiv         = document.getElementById('kappaResult');
-        const statsDisplay     = document.getElementById('statsDisplay');
-        const methodSelect     = document.getElementById('methodSelect');
-        const aprioriMarginIn  = document.getElementById('aprioriMargin');
-        const cbBias           = document.getElementById('showBias');
-        const cbUpperLoA       = document.getElementById('showUpperLoA');
-        const cbLowerLoA       = document.getElementById('showLowerLoA');
-        const cbUpperApr       = document.getElementById('showUpperApriori');
-        const cbLowerApr       = document.getElementById('showLowerApriori');
-        const cbCI             = document.getElementById('showCI');
-        const cbGrey           = document.getElementById('showGreyPoints');
-        const cbZero           = document.getElementById('showZero');
-        const cbProp           = document.getElementById('showProportionality');
-        const cbCorr           = document.getElementById('showCorrelation');
-        const toggleDiagBtn    = document.getElementById('toggleDiagBtn');
-        const corrContainer    = document.getElementById('correlationContainer');
-        const diagContainer    = document.getElementById('diagnosticsContainer');
-        const xyPlotDiv        = document.getElementById('xyPlot');
-        const xyStatsDiv       = document.getElementById('xyStats');
-        const normPlotDiv      = document.getElementById('normPlot');
-        const normStatsDiv     = document.getElementById('normStats');
-        const propPlotDiv      = document.getElementById('propPlot');
-        const propStatsDiv     = document.getElementById('propStats');
+        const fileInput           = document.getElementById('csvFile');
+        const progBar             = document.getElementById('progressBar');
+        const statusMsg           = document.getElementById('statusMsg');
+        const progCont            = document.getElementById('progressContainer');
+        const mainContainer       = document.getElementById('mainContainer');
+        const chartDiv            = document.getElementById('chart');
+        const iccDiv              = document.getElementById('iccResult');
+        const kappaDiv            = document.getElementById('kappaResult');
+        const statsDisplay        = document.getElementById('statsDisplay');
+        const columnNamesDisplay  = document.getElementById('columnNamesDisplay');
+        const methodSelect        = document.getElementById('methodSelect');
+        const aprioriMarginIn     = document.getElementById('aprioriMargin');
+        const cbBias              = document.getElementById('showBias');
+        const cbUpperLoA          = document.getElementById('showUpperLoA');
+        const cbLowerLoA          = document.getElementById('showLowerLoA');
+        const cbUpperApr          = document.getElementById('showUpperApriori');
+        const cbLowerApr          = document.getElementById('showLowerApriori');
+        const cbCI                = document.getElementById('showCI');
+        const cbGrey              = document.getElementById('showGreyPoints');
+        const cbZero              = document.getElementById('showZero');
+        const cbProp              = document.getElementById('showProportionality');
+        const cbZone              = document.getElementById('showZoneLabels');
+        const cbCorr              = document.getElementById('showCorrelation');
+        const toggleDiagBtn       = document.getElementById('toggleDiagBtn');
+        const corrContainer       = document.getElementById('correlationContainer');
+        const diagContainer       = document.getElementById('diagnosticsContainer');
+        const xyPlotDiv           = document.getElementById('xyPlot');
+        const xyStatsDiv          = document.getElementById('xyStats');
+        const normPlotDiv         = document.getElementById('normPlot');
+        const normStatsDiv        = document.getElementById('normStats');
+        const propPlotDiv         = document.getElementById('propPlot');
+        const propStatsDiv        = document.getElementById('propStats');
 
         // ---- Global state ----
         let allStats = null;
         let plotData = null;
         let diagData = null;
+        let columnNames = { m1: 'Method1', m2: 'Method2' };
         let iccText  = '';
         let kappaText = '';
         let currentMethod = 'mad';
@@ -306,11 +312,32 @@
                 width: 650, height: 380,
                 margin: { l: 50, r: 20, b: 50, t: 40 },
                 hovermode: 'closest',
-                plot_bgcolor: 'white', paper_bgcolor: 'white'
+                plot_bgcolor: 'white', paper_bgcolor: 'white',
+                annotations: cbZone.checked ? [
+                    {
+                        x: 0.98, y: 0.95, xref: 'paper', yref: 'paper',
+                        text: `${columnNames.m1} > ${columnNames.m2}`,
+                        showarrow: false, font: { size: 10, color: '#888' },
+                        xanchor: 'right', yanchor: 'top'
+                    },
+                    {
+                        x: 0.98, y: 0.05, xref: 'paper', yref: 'paper',
+                        text: `${columnNames.m2} > ${columnNames.m1}`,
+                        showarrow: false, font: { size: 10, color: '#888' },
+                        xanchor: 'right', yanchor: 'bottom'
+                    },
+                    {
+                        x: 0.98, y: 0.50, xref: 'paper', yref: 'paper',
+                        text: `${columnNames.m1} = ${columnNames.m2}`,
+                        showarrow: false, font: { size: 10, color: '#888' },
+                        xanchor: 'right', yanchor: 'middle'
+                    }
+                ] : []
             };
 
             Plotly.newPlot('chart', traces, layout);
 
+            // Update stats display
             statsDisplay.innerHTML = `
                 <span>Bias:</span> ${s.bias.toFixed(3)}<br>
                 <span>Upper LoA:</span> ${s.loa_upper.toFixed(3)}<br>
@@ -323,7 +350,7 @@
             `;
         }
 
-        // ---- Render correlation plot (separate) ----
+        // ---- Render correlation plot ----
         function renderCorrelation() {
             if (!diagData) return;
             const xyTrace = {
@@ -333,8 +360,8 @@
                 name: 'Data', showlegend: false
             };
             Plotly.newPlot('xyPlot', [xyTrace], {
-                xaxis: { title: 'Method1 [Cq]' },
-                yaxis: { title: 'Method2 [Cq]' },
+                xaxis: { title: `${columnNames.m1} [Cq]` },
+                yaxis: { title: `${columnNames.m2} [Cq]` },
                 width: 400, height: 350,
                 margin: { l: 50, r: 20, b: 50, t: 30 }
             });
@@ -419,9 +446,9 @@
             if (cbCorr.checked && diagData) renderCorrelation();
         });
 
-        // ---- Main plot controls ----
+        // ---- Main plot controls (including zone labels) ----
         const controls = [methodSelect, aprioriMarginIn, cbBias, cbUpperLoA, cbLowerLoA,
-                          cbUpperApr, cbLowerApr, cbCI, cbGrey, cbZero, cbProp];
+                          cbUpperApr, cbLowerApr, cbCI, cbGrey, cbZero, cbProp, cbZone];
         controls.forEach(el => {
             el.addEventListener('change', () => {
                 currentMethod = methodSelect.value;
@@ -433,7 +460,7 @@
             });
         });
 
-        // ---- Handle CSV upload (unchanged R logic) ----
+        // ---- Handle CSV upload ----
         fileInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
@@ -454,7 +481,7 @@
                 mainContainer.style.display = 'none';
                 corrContainer.style.display = cbCorr.checked ? 'block' : 'none';
 
-                // Massive R computation: BA stats + diagnostics
+                // Massive R computation: BA stats + diagnostics + column names
                 const rawResult = await webR.evalR(`
                     library(data.table)
                     library(jsonlite)
@@ -466,6 +493,10 @@
                     } else {
                         cols_use <- 1:2
                     }
+                    # Save original column names before renaming
+                    method1_name <- cn[cols_use[1]]
+                    method2_name <- cn[cols_use[2]]
+
                     dt <- dt[, ..cols_use]
                     setnames(dt, c("Method1", "Method2"))
                     dt <- na.omit(dt)
@@ -557,6 +588,8 @@
                         means_all  = dt$mean_val,
                         diffs_all  = dt$diff_val,
                         condition  = dt$condition,
+                        method1_name = method1_name,
+                        method2_name = method2_name,
                         parametric = list(
                             bias = mean_diff, loa_upper = loa_up_p, loa_lower = loa_lo_p,
                             bias_ci_low = bias_ci_lo_p, bias_ci_high = bias_ci_hi_p,
@@ -594,6 +627,13 @@
 
                 const jsonStr = await rawResult.toString();
                 const fullData = JSON.parse(jsonStr);
+
+                // Store original column names
+                columnNames = {
+                    m1: fullData.method1_name || 'Method1',
+                    m2: fullData.method2_name || 'Method2'
+                };
+                columnNamesDisplay.textContent = `Method1: ${columnNames.m1}    Method2: ${columnNames.m2}`;
 
                 allStats = {
                     parametric: fullData.parametric,
@@ -706,7 +746,6 @@
                 currentMethod = methodSelect.value;
                 renderPlot();
 
-                // Render correlation if checkbox is checked
                 if (cbCorr.checked) renderCorrelation();
 
                 showProgress(100, 'Plot, ICC and kappa ready!');
