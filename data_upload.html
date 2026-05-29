@@ -2,8 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bland‑Altman Plot (Cq Values) v9.0</title>
-    <!-- Plotly.js loaded in the main page -->
+    <title>Bland‑Altman Plot (Cq Values) v10.0</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -16,7 +15,7 @@
     </style>
 </head>
 <body>
-    <h1>Bland‑Altman Plot (Cq Values) v9.0</h1>
+    <h1>Bland‑Altman Plot (Cq Values) v10.0</h1>
     <p>Upload a CSV with a header. The first two columns must be numeric Cq values.</p>
 
     <input type="file" id="csvFile" accept=".csv" />
@@ -52,7 +51,7 @@
         const webR = new WebR();
         let Rready = false;
 
-        // ---- Initialise R ----
+        // ---- Initialise R (only data.table needed) ----
         (async () => {
             try {
                 showProgress(5, 'Starting R…');
@@ -125,14 +124,12 @@
                 await webR.FS.writeFile('/home/data.csv', utf8Bytes);
 
                 showProgress(60, 'Calculating Bland‑Altman statistics in R…');
-                chartDiv.innerHTML = ''; // clear previous plot
+                chartDiv.innerHTML = '';
 
-                // Run R code that returns a JSON string of the plot data
-                const resultJson = await webR.evalR(`
+                // R: compute Bland‑Altman and return a list of vectors
+                const result = await webR.evalR(`
                     library(data.table)
                     dt <- fread("/home/data.csv", header = TRUE)
-
-                    # Use first two columns
                     setnames(dt, 1:2, c("Method1", "Method2"))
                     dt <- na.omit(dt[, .(Method1, Method2)])
 
@@ -143,18 +140,17 @@
                     upper_loa <- avg_diff + 1.96 * sd_diff
                     lower_loa <- avg_diff - 1.96 * sd_diff
 
-                    # Build a list with all needed arrays
-                    jsonlite::toJSON(list(
+                    list(
                         means = dt$means,
                         diffs = dt$diffs,
                         avg_diff = avg_diff,
                         upper_loa = upper_loa,
                         lower_loa = lower_loa
-                    ), auto_unbox = TRUE)
+                    )
                 `);
 
-                // Parse the JSON from R
-                const plotData = JSON.parse(await resultJson.toString());
+                // Convert R list to plain JavaScript object
+                const plotData = await result.toJs();
 
                 showProgress(80, 'Rendering Bland‑Altman chart…');
 
@@ -168,10 +164,11 @@
                     name: 'Differences'
                 };
 
-                const xRange = [Math.min(...plotData.means), Math.max(...plotData.means)];
+                const xMin = Math.min(...plotData.means);
+                const xMax = Math.max(...plotData.means);
 
                 const meanLine = {
-                    x: xRange,
+                    x: [xMin, xMax],
                     y: [plotData.avg_diff, plotData.avg_diff],
                     type: 'scatter',
                     mode: 'lines',
@@ -180,7 +177,7 @@
                 };
 
                 const upperLine = {
-                    x: xRange,
+                    x: [xMin, xMax],
                     y: [plotData.upper_loa, plotData.upper_loa],
                     type: 'scatter',
                     mode: 'lines',
@@ -189,7 +186,7 @@
                 };
 
                 const lowerLine = {
-                    x: xRange,
+                    x: [xMin, xMax],
                     y: [plotData.lower_loa, plotData.lower_loa],
                     type: 'scatter',
                     mode: 'lines',
