@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Serotype Ranking + Bland‑Altman (WebR)</title>
+    <title>Serotype Ranking + Bland‑Altman (with multi‑rank overlay)</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -28,9 +28,9 @@
     </style>
 </head>
 <body>
-    <h1>Serotype Ranking & Bland‑Altman Analysis v0.4 </h1>
-    <p>Upload a CSV (first column = sample ID). Assays with Ct ≥ 40 are considered negative and ignored in ranking.<br>
-    Exclude unwanted assays, then run ranking. Select a reference assay and the ranks to compare.</p>
+    <h1>Serotype Ranking & Bland‑Altman (multi‑rank overlay) v0.5</h1>
+    <p>Upload CSV (first column = sample ID). Assays with Ct ≥ 40 are ignored.<br>
+    Choose assays to exclude, then rank. Select a reference assay, a primary rank for BA statistics, and optionally overlay other ranks as coloured points.</p>
 
     <input type="file" id="csvFile" accept=".csv" />
 
@@ -52,11 +52,23 @@
                     <label>Reference assay: <select id="refSelect"></select></label>
                 </div>
                 <div class="control-group">
-                    <label><input type="checkbox" id="rank1Check" checked> Rank 1</label>
-                    <label><input type="checkbox" id="rank2Check"> Rank 2</label>
-                    <label><input type="checkbox" id="rank3Check"> Rank 3</label>
-                    <label><input type="checkbox" id="rank4Check"> Rank 4</label>
-                    <label><input type="checkbox" id="rank5Check"> Rank 5</label>
+                    <label>Primary rank for BA (lines, stats): 
+                        <select id="primaryRankSelect">
+                            <option value="1">Rank 1</option>
+                            <option value="2">Rank 2</option>
+                            <option value="3">Rank 3</option>
+                            <option value="4">Rank 4</option>
+                            <option value="5">Rank 5</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="control-group">
+                    <label>Overlay points from ranks:</label>
+                    <label><input type="checkbox" id="showRank1" checked> Rank1</label>
+                    <label><input type="checkbox" id="showRank2"> Rank2</label>
+                    <label><input type="checkbox" id="showRank3"> Rank3</label>
+                    <label><input type="checkbox" id="showRank4"> Rank4</label>
+                    <label><input type="checkbox" id="showRank5"> Rank5</label>
                 </div>
                 <div class="control-group">
                     <label>Limit method:
@@ -84,9 +96,9 @@
             </div>
         </div>
         <div id="baPlotContainer">
-            <h3>Bland‑Altman Plot (Reference vs. Selected Ranks)</h3>
+            <h3>Bland‑Altman Plot (Reference vs. Primary Rank – other ranks as coloured points)</h3>
             <div id="baPlot"></div>
-            <table id="statsTable" class="stats-table"><thead><tr><th>Rank</th><th>Bias (95% CI)</th><th>Upper LoA (95% CI)</th><th>Lower LoA (95% CI)</th></tr></thead><tbody></tbody></table>
+            <table id="statsTable" class="stats-table"><thead><tr><th>Statistic</th><th>Value (95% CI)</th></tr></thead><tbody></tbody></table>
         </div>
     </div>
 
@@ -102,12 +114,13 @@
         const assayChecklistDiv = document.getElementById('assayChecklist');
         const runRankingBtn = document.getElementById('runRankingBtn');
         const refSelect = document.getElementById('refSelect');
-        const rankCheckboxes = {
-            1: document.getElementById('rank1Check'),
-            2: document.getElementById('rank2Check'),
-            3: document.getElementById('rank3Check'),
-            4: document.getElementById('rank4Check'),
-            5: document.getElementById('rank5Check')
+        const primaryRankSelect = document.getElementById('primaryRankSelect');
+        const showRankCheck = {
+            1: document.getElementById('showRank1'),
+            2: document.getElementById('showRank2'),
+            3: document.getElementById('showRank3'),
+            4: document.getElementById('showRank4'),
+            5: document.getElementById('showRank5')
         };
         const methodSelect = document.getElementById('methodSelect');
         const aprioriMarginInput = document.getElementById('aprioriMargin');
@@ -124,9 +137,9 @@
 
         let webR;
         let Rready = false;
-        let csvFileName = '/home/data.csv';
+        let currentData = null;       // original data as JSON
         let assayNames = [];
-        let rankingResult = null;      // will store ranked data (as JSON object)
+        let rankingResult = null;      // ranked data (with rank*_Cq, rank*_assay)
 
         function showProgress(pct, msg) {
             progCont.style.display = 'block';
@@ -180,44 +193,44 @@
             return new TextEncoder().encode(str);
         }
 
-        // Load CSV, display assay checklist, store file for later use
+        // Load CSV, display assay checklist, store original data
         fileInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file || !Rready) return;
             try {
                 showProgress(10, 'Reading file...');
                 const utf8Bytes = await decodeFileToCleanUTF8(file);
-                await webR.FS.writeFile(csvFileName, utf8Bytes);
-                showProgress(30, 'Loading data info...');
-                // Get column names and first column name (sample ID)
+                await webR.FS.writeFile('/home/data.csv', utf8Bytes);
+                showProgress(30, 'Loading data...');
                 const res = await webR.evalR(`
-                    library(data.table)
-                    dt <- fread("${csvFileName}", header = TRUE)
-                    jsonlite::toJSON(list(
+                    dt <- fread("/home/data.csv", header = TRUE)
+                    list(
                         names = names(dt),
-                        first_col = names(dt)[1]
-                    ), auto_unbox = TRUE)
+                        first_col = names(dt)[1],
+                        data = as.data.frame(dt)
+                    )
                 `);
-                const jsonStr = await res.toString();
-                const info = JSON.parse(jsonStr);
-                assayNames = info.names.slice(1); // exclude first column
+                const json = await res.toJson();
+                const parsed = JSON.parse(json);
+                currentData = parsed.data;
+                assayNames = parsed.names.slice(1);
                 // Populate checklist
                 assayChecklistDiv.innerHTML = '';
                 assayNames.forEach(assay => {
                     const label = document.createElement('label');
-                    label.innerHTML = `<input type="checkbox" class="excludeCheck" value="${assay.replace(/"/g, '&quot;')}"> ${assay}`;
+                    label.innerHTML = `<input type="checkbox" class="excludeCheck" value="${assay}"> ${assay}`;
                     assayChecklistDiv.appendChild(label);
                 });
-                // Populate reference dropdown (include first column and all assays)
+                // Populate reference dropdown (all columns)
                 refSelect.innerHTML = '';
-                [info.first_col, ...assayNames].forEach(col => {
+                [...assayNames, parsed.names[0]].forEach(col => {
                     const opt = document.createElement('option');
                     opt.value = col;
                     opt.textContent = col;
                     refSelect.appendChild(opt);
                 });
                 controlPanel.style.display = 'block';
-                showProgress(100, 'CSV loaded. Select assays to exclude, then click "Run Ranking".');
+                showProgress(100, 'CSV loaded. Select exclusions, then click "Run Ranking".');
             } catch (err) {
                 console.error(err);
                 alert('Error loading CSV: ' + err.message);
@@ -226,48 +239,48 @@
             }
         });
 
-        // Ranking function (respects excluded assays) using the CSV file
+        // Ranking function
         async function runRanking() {
-            if (!Rready) return;
-            const excluded = Array.from(document.querySelectorAll('.excludeCheck:checked')).map(cb => `"${cb.value.replace(/"/g, '\\"')}"`);
-            const excludedRVec = excluded.length ? `c(${excluded.join(',')})` : 'NULL';
+            if (!currentData) return;
+            const excluded = Array.from(document.querySelectorAll('.excludeCheck:checked')).map(cb => cb.value);
+            const excludedJson = JSON.stringify(excluded);
             showProgress(40, 'Ranking serotypes (Ct<40 only)...');
             try {
                 const script = `
-                    library(data.table)
-                    dt <- fread("${csvFileName}", header = TRUE)
-                    assay_cols <- setdiff(names(dt)[-1], ${excludedRVec})
-                    # Ensure numeric
-                    dt[, (assay_cols) := lapply(.SD, as.numeric), .SDcols = assay_cols]
-                    n_ranks <- 5
-                    cutoff <- 40
-                    cq_cols <- paste0("rank", 1:n_ranks, "_Cq")
-                    name_cols <- paste0("rank", 1:n_ranks, "_assay")
-                    result_cq <- matrix(NA_real_, nrow = nrow(dt), ncol = n_ranks)
-                    result_name <- matrix("-", nrow = nrow(dt), ncol = n_ranks)
-                    for (i in 1:nrow(dt)) {
-                        vals <- unlist(dt[i, ..assay_cols])
-                        names <- assay_cols
-                        valid <- !is.na(vals) & vals < cutoff
-                        if (any(valid)) {
-                            valid_vals <- vals[valid]
-                            valid_names <- names[valid]
-                            ord <- order(valid_vals)
-                            top_vals <- valid_vals[ord]
-                            top_names <- valid_names[ord]
-                            k <- min(n_ranks, length(top_vals))
-                            result_cq[i, 1:k] <- top_vals[1:k]
-                            result_name[i, 1:k] <- top_names[1:k]
+                    (function(data, excluded) {
+                        library(data.table)
+                        dt <- as.data.table(data)
+                        assay_cols <- setdiff(names(dt)[-1], excluded)
+                        dt[, (assay_cols) := lapply(.SD, as.numeric), .SDcols = assay_cols]
+                        n_ranks <- 5
+                        cutoff <- 40
+                        cq_cols <- paste0("rank", 1:n_ranks, "_Cq")
+                        name_cols <- paste0("rank", 1:n_ranks, "_assay")
+                        result_cq <- matrix(NA_real_, nrow = nrow(dt), ncol = n_ranks)
+                        result_name <- matrix("-", nrow = nrow(dt), ncol = n_ranks)
+                        for (i in 1:nrow(dt)) {
+                            vals <- unlist(dt[i, ..assay_cols])
+                            names <- assay_cols
+                            valid <- !is.na(vals) & vals < cutoff
+                            if (any(valid)) {
+                                valid_vals <- vals[valid]
+                                valid_names <- names[valid]
+                                ord <- order(valid_vals)
+                                top_vals <- valid_vals[ord]
+                                top_names <- valid_names[ord]
+                                k <- min(n_ranks, length(top_vals))
+                                result_cq[i, 1:k] <- top_vals[1:k]
+                                result_name[i, 1:k] <- top_names[1:k]
+                            }
                         }
-                    }
-                    for (k in 1:n_ranks) {
-                        set(dt, j = cq_cols[k], value = result_cq[, k])
-                        set(dt, j = name_cols[k], value = result_name[, k])
-                    }
-                    # Keep only necessary columns for plotting (original + rank Cqs)
-                    keep_cols <- c(names(dt)[1], assay_cols, cq_cols)
-                    out_dt <- dt[, ..keep_cols]
-                    jsonlite::toJSON(as.data.frame(out_dt), auto_unbox = TRUE, digits = 8)
+                        for (k in 1:n_ranks) {
+                            set(dt, j = cq_cols[k], value = result_cq[, k])
+                            set(dt, j = name_cols[k], value = result_name[, k])
+                        }
+                        keep_cols <- c(names(dt)[1], assay_cols, cq_cols)
+                        out_dt <- dt[, ..keep_cols]
+                        jsonlite::toJSON(as.data.frame(out_dt), auto_unbox = TRUE, digits = 8)
+                    })(currentData, ${excludedJson})
                 `;
                 const result = await webR.evalR(script);
                 const jsonStr = await result.toString();
@@ -282,48 +295,50 @@
             }
         }
 
-        // Compute BA statistics and plot
+        // Bland‑Altman: compute only for primary rank, overlay points from selected ranks
         async function updateBlandAltman() {
             if (!rankingResult) return;
             const refAssay = refSelect.value;
-            const selectedRanks = [];
+            const primaryRank = parseInt(primaryRankSelect.value);
+            const showRanks = [];
             for (let i = 1; i <= 5; i++) {
-                if (rankCheckboxes[i] && rankCheckboxes[i].checked) selectedRanks.push(i);
+                if (showRankCheck[i] && showRankCheck[i].checked) showRanks.push(i);
             }
-            if (selectedRanks.length === 0) {
-                alert('Select at least one rank to display.');
+            if (showRanks.length === 0) {
+                alert('Select at least one rank to display as points.');
                 return;
             }
             const method = methodSelect.value;
             const margin = parseFloat(aprioriMarginInput.value) || 0;
             const showCIs = showCI.checked;
 
-            // Send rankingResult (as JSON) and parameters to R for BA calculation
-            const dataJson = JSON.stringify(rankingResult).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-            const ranksArray = selectedRanks;
+            // Build data for primary rank (BA stats) and all requested ranks (points only)
+            const primaryRankCol = `rank${primaryRank}_Cq`;
+            const allRankCols = showRanks.map(r => `rank${r}_Cq`);
+            const ranksJson = JSON.stringify(showRanks);
             const script = `
                 library(data.table)
-                dt <- as.data.table(jsonlite::fromJSON('${dataJson}'))
+                dt <- as.data.table(rankingResult)
                 ref_col <- "${refAssay}"
-                rank_cols <- paste0("rank", c(${ranksArray.join(',')}), "_Cq")
-                ranks <- c(${ranksArray.join(',')})
-                result <- list()
-                for (i in seq_along(rank_cols)) {
-                    rk <- ranks[i]
-                    rank_col <- rank_cols[i]
-                    valid <- !is.na(dt[[ref_col]]) & !is.na(dt[[rank_col]]) & dt[[rank_col]] < 40
-                    if (sum(valid) < 2) {
-                        result[[as.character(rk)]] <- list(error = "Insufficient pairs")
-                        next
-                    }
-                    x <- dt[[ref_col]][valid]
-                    y <- dt[[rank_col]][valid]
-                    diff <- x - y
-                    mean_val <- (x + y) / 2
-                    n <- length(diff)
+                primary_rank_col <- "${primaryRankCol}"
+                all_rank_cols <- c(${allRankCols.map(c => `"${c}"`).join(',')})
+                ranks <- c(${showRanks.join(',')})
+                
+                # Primary rank data (for BA statistics)
+                valid_primary <- !is.na(dt[[ref_col]]) & !is.na(dt[[primary_rank_col]]) & dt[[primary_rank_col]] < 40
+                if (sum(valid_primary) < 2) {
+                    result <- list(error = "Insufficient pairs for primary rank")
+                } else {
+                    x_primary <- dt[[ref_col]][valid_primary]
+                    y_primary <- dt[[primary_rank_col]][valid_primary]
+                    diff_primary <- x_primary - y_primary
+                    mean_primary <- (x_primary + y_primary) / 2
+                    n <- length(diff_primary)
+                    
+                    # Compute BA statistics based on method
                     if ("${method}" == "parametric") {
-                        bias <- mean(diff)
-                        sd_diff <- sd(diff)
+                        bias <- mean(diff_primary)
+                        sd_diff <- sd(diff_primary)
                         loa_up <- bias + 1.96 * sd_diff
                         loa_lo <- bias - 1.96 * sd_diff
                         se_bias <- sd_diff / sqrt(n)
@@ -336,14 +351,14 @@
                         loa_lo_ci_low <- loa_lo - t_crit * se_loa
                         loa_lo_ci_high <- loa_lo + t_crit * se_loa
                     } else if ("${method}" == "nonparametric") {
-                        bias <- median(diff)
-                        loa_up <- quantile(diff, 0.975)
-                        loa_lo <- quantile(diff, 0.025)
+                        bias <- median(diff_primary)
+                        loa_up <- quantile(diff_primary, 0.975)
+                        loa_lo <- quantile(diff_primary, 0.025)
                         set.seed(42)
                         B <- 300
                         boot_bias <- boot_up <- boot_lo <- numeric(B)
                         for (b in 1:B) {
-                            s <- sample(diff, replace = TRUE)
+                            s <- sample(diff_primary, replace = TRUE)
                             boot_bias[b] <- median(s)
                             boot_up[b] <- quantile(s, 0.975)
                             boot_lo[b] <- quantile(s, 0.025)
@@ -354,16 +369,16 @@
                         loa_up_ci_high <- quantile(boot_up, 0.975)
                         loa_lo_ci_low <- quantile(boot_lo, 0.025)
                         loa_lo_ci_high <- quantile(boot_lo, 0.975)
-                    } else { # mad
-                        bias <- median(diff)
-                        mad_val <- median(abs(diff - bias))
+                    } else { # MAD
+                        bias <- median(diff_primary)
+                        mad_val <- median(abs(diff_primary - bias))
                         loa_up <- bias + 1.96 * mad_val
                         loa_lo <- bias - 1.96 * mad_val
                         set.seed(42)
                         B <- 300
                         boot_bias <- boot_up <- boot_lo <- numeric(B)
                         for (b in 1:B) {
-                            s <- sample(diff, replace = TRUE)
+                            s <- sample(diff_primary, replace = TRUE)
                             med <- median(s)
                             mad_i <- median(abs(s - med))
                             boot_bias[b] <- med
@@ -377,19 +392,36 @@
                         loa_lo_ci_low <- quantile(boot_lo, 0.025)
                         loa_lo_ci_high <- quantile(boot_lo, 0.975)
                     }
-                    result[[as.character(rk)]] <- list(
-                        bias = bias,
-                        loa_upper = loa_up,
-                        loa_lower = loa_lo,
-                        bias_ci_low = bias_ci_low,
-                        bias_ci_high = bias_ci_high,
-                        loa_up_ci_low = loa_up_ci_low,
-                        loa_up_ci_high = loa_up_ci_high,
-                        loa_lo_ci_low = loa_lo_ci_low,
-                        loa_lo_ci_high = loa_lo_ci_high,
-                        x_vals = mean_val,
-                        y_vals = diff,
-                        rank = rk
+                    
+                    # Collect overlay data for all selected ranks (including primary, but points will be drawn separately)
+                    overlay_points <- list()
+                    for (i in seq_along(all_rank_cols)) {
+                        rank_col <- all_rank_cols[i]
+                        rk <- ranks[i]
+                        valid <- !is.na(dt[[ref_col]]) & !is.na(dt[[rank_col]]) & dt[[rank_col]] < 40
+                        if (sum(valid) > 0) {
+                            overlay_points[[as.character(rk)]] <- list(
+                                x = (dt[[ref_col]][valid] + dt[[rank_col]][valid]) / 2,
+                                y = dt[[ref_col]][valid] - dt[[rank_col]][valid]
+                            )
+                        }
+                    }
+                    
+                    result <- list(
+                        primary = list(
+                            bias = bias,
+                            loa_upper = loa_up,
+                            loa_lower = loa_lo,
+                            bias_ci_low = bias_ci_low,
+                            bias_ci_high = bias_ci_high,
+                            loa_up_ci_low = loa_up_ci_low,
+                            loa_up_ci_high = loa_up_ci_high,
+                            loa_lo_ci_low = loa_lo_ci_low,
+                            loa_lo_ci_high = loa_lo_ci_high,
+                            mean_vals = mean_primary,
+                            diff_vals = diff_primary
+                        ),
+                        overlay = overlay_points
                     )
                 }
                 jsonlite::toJSON(result, auto_unbox = TRUE, digits = 8)
@@ -397,73 +429,85 @@
             try {
                 const statsRes = await webR.evalR(script);
                 const statsJson = await statsRes.toString();
-                const stats = JSON.parse(statsJson);
+                const result = JSON.parse(statsJson);
+                if (result.error) {
+                    alert(result.error);
+                    return;
+                }
+                const primary = result.primary;
+                const overlay = result.overlay;
+                
                 // Build Plotly traces
                 const traces = [];
                 const colors = {1: 'blue', 2: 'green', 3: 'orange', 4: 'purple', 5: 'brown'};
-                statsTableBody.innerHTML = '';
-                for (const rk of selectedRanks) {
-                    const rkStr = rk.toString();
-                    const s = stats[rkStr];
-                    if (s.error) {
-                        statsTableBody.innerHTML += `<tr><td>Rank ${rk}</td><td colspan="3">${s.error}</td></tr>`;
-                        continue;
+                const pointSize = 8;
+                const opacity = 0.7;
+                
+                // Add points for each selected rank (including primary, but we add all from overlay)
+                for (const rkStr in overlay) {
+                    const rk = parseInt(rkStr);
+                    const pts = overlay[rkStr];
+                    if (pts && pts.x && pts.x.length > 0) {
+                        traces.push({
+                            x: pts.x,
+                            y: pts.y,
+                            type: 'scatter',
+                            mode: 'markers',
+                            marker: { color: colors[rk], size: pointSize, opacity: opacity },
+                            name: `Rank ${rk} points`,
+                            showlegend: true
+                        });
                     }
-                    // Points trace
-                    traces.push({
-                        x: s.x_vals,
-                        y: s.y_vals,
-                        type: 'scatter',
-                        mode: 'markers',
-                        marker: { color: colors[rk], size: 7, opacity: 0.7 },
-                        name: `Rank ${rk}`,
-                        showlegend: true
-                    });
-                    const xRange = [Math.min(...s.x_vals, 20), Math.max(...s.x_vals, 42)];
-                    const lineStyle = { color: colors[rk], width: 1.5, dash: 'dash' };
-                    if (showBias.checked) {
-                        traces.push({ x: xRange, y: [s.bias, s.bias], mode: 'lines', line: lineStyle, name: `Bias ${rk}`, showlegend: false });
-                        if (showCIs && s.bias_ci_low) {
-                            traces.push({ x: xRange, y: [s.bias_ci_low, s.bias_ci_low], mode: 'lines', line: { color: colors[rk], width: 1, dash: 'dot' }, showlegend: false });
-                            traces.push({ x: xRange, y: [s.bias_ci_high, s.bias_ci_high], mode: 'lines', line: { color: colors[rk], width: 1, dash: 'dot' }, showlegend: false });
-                        }
-                    }
-                    if (showUpperLoA.checked) {
-                        traces.push({ x: xRange, y: [s.loa_upper, s.loa_upper], mode: 'lines', line: lineStyle, name: `Upper LoA ${rk}`, showlegend: false });
-                        if (showCIs && s.loa_up_ci_low) {
-                            traces.push({ x: xRange, y: [s.loa_up_ci_low, s.loa_up_ci_low], mode: 'lines', line: { color: colors[rk], width: 1, dash: 'dot' }, showlegend: false });
-                            traces.push({ x: xRange, y: [s.loa_up_ci_high, s.loa_up_ci_high], mode: 'lines', line: { color: colors[rk], width: 1, dash: 'dot' }, showlegend: false });
-                        }
-                    }
-                    if (showLowerLoA.checked) {
-                        traces.push({ x: xRange, y: [s.loa_lower, s.loa_lower], mode: 'lines', line: lineStyle, name: `Lower LoA ${rk}`, showlegend: false });
-                        if (showCIs && s.loa_lo_ci_low) {
-                            traces.push({ x: xRange, y: [s.loa_lo_ci_low, s.loa_lo_ci_low], mode: 'lines', line: { color: colors[rk], width: 1, dash: 'dot' }, showlegend: false });
-                            traces.push({ x: xRange, y: [s.loa_lo_ci_high, s.loa_lo_ci_high], mode: 'lines', line: { color: colors[rk], width: 1, dash: 'dot' }, showlegend: false });
-                        }
-                    }
-                    // a priori limits (use bias from this rank)
-                    if (showUpperApriori.checked) {
-                        traces.push({ x: xRange, y: [s.bias + margin, s.bias + margin], mode: 'lines', line: { color: 'green', width: 1.5 }, name: 'Upper a priori', showlegend: false });
-                    }
-                    if (showLowerApriori.checked) {
-                        traces.push({ x: xRange, y: [s.bias - margin, s.bias - margin], mode: 'lines', line: { color: 'green', width: 1.5 }, name: 'Lower a priori', showlegend: false });
-                    }
-                    if (showZero.checked) {
-                        traces.push({ x: xRange, y: [0,0], mode: 'lines', line: { color: 'black', width: 0.5 }, showlegend: false });
-                    }
-                    // Stats table row
-                    statsTableBody.innerHTML += `
-                        <tr>
-                            <td>Rank ${rk}</td>
-                            <td>${s.bias.toFixed(3)} (${showCIs ? s.bias_ci_low.toFixed(3)+'–'+s.bias_ci_high.toFixed(3) : '-'})</td>
-                            <td>${s.loa_upper.toFixed(3)} (${showCIs ? s.loa_up_ci_low.toFixed(3)+'–'+s.loa_up_ci_high.toFixed(3) : '-'})</td>
-                            <td>${s.loa_lower.toFixed(3)} (${showCIs ? s.loa_lo_ci_low.toFixed(3)+'–'+s.loa_lo_ci_high.toFixed(3) : '-'})</td>
-                        </tr>
-                    `;
                 }
+                
+                // Add BA lines (primary rank only)
+                const xRange = [Math.min(...primary.mean_vals, 20), Math.max(...primary.mean_vals, 42)];
+                const lineColor = colors[primaryRankSelect.value];
+                if (showBias.checked) {
+                    traces.push({
+                        x: xRange, y: [primary.bias, primary.bias],
+                        mode: 'lines', line: { color: lineColor, width: 2, dash: 'solid' },
+                        name: `Bias (primary rank ${primaryRankSelect.value})`, showlegend: true
+                    });
+                    if (showCIs.checked && primary.bias_ci_low !== undefined) {
+                        traces.push({ x: xRange, y: [primary.bias_ci_low, primary.bias_ci_low], mode: 'lines', line: { color: lineColor, width: 1, dash: 'dot' }, showlegend: false });
+                        traces.push({ x: xRange, y: [primary.bias_ci_high, primary.bias_ci_high], mode: 'lines', line: { color: lineColor, width: 1, dash: 'dot' }, showlegend: false });
+                    }
+                }
+                if (showUpperLoA.checked) {
+                    traces.push({
+                        x: xRange, y: [primary.loa_upper, primary.loa_upper],
+                        mode: 'lines', line: { color: lineColor, width: 2, dash: 'dash' },
+                        name: `Upper LoA (primary rank)`, showlegend: true
+                    });
+                    if (showCIs.checked && primary.loa_up_ci_low !== undefined) {
+                        traces.push({ x: xRange, y: [primary.loa_up_ci_low, primary.loa_up_ci_low], mode: 'lines', line: { color: lineColor, width: 1, dash: 'dot' }, showlegend: false });
+                        traces.push({ x: xRange, y: [primary.loa_up_ci_high, primary.loa_up_ci_high], mode: 'lines', line: { color: lineColor, width: 1, dash: 'dot' }, showlegend: false });
+                    }
+                }
+                if (showLowerLoA.checked) {
+                    traces.push({
+                        x: xRange, y: [primary.loa_lower, primary.loa_lower],
+                        mode: 'lines', line: { color: lineColor, width: 2, dash: 'dash' },
+                        name: `Lower LoA (primary rank)`, showlegend: true
+                    });
+                    if (showCIs.checked && primary.loa_lo_ci_low !== undefined) {
+                        traces.push({ x: xRange, y: [primary.loa_lo_ci_low, primary.loa_lo_ci_low], mode: 'lines', line: { color: lineColor, width: 1, dash: 'dot' }, showlegend: false });
+                        traces.push({ x: xRange, y: [primary.loa_lo_ci_high, primary.loa_lo_ci_high], mode: 'lines', line: { color: lineColor, width: 1, dash: 'dot' }, showlegend: false });
+                    }
+                }
+                if (showUpperApriori.checked) {
+                    traces.push({ x: xRange, y: [primary.bias + margin, primary.bias + margin], mode: 'lines', line: { color: 'green', width: 1.5, dash: 'solid' }, name: 'Upper a priori', showlegend: true });
+                }
+                if (showLowerApriori.checked) {
+                    traces.push({ x: xRange, y: [primary.bias - margin, primary.bias - margin], mode: 'lines', line: { color: 'green', width: 1.5, dash: 'solid' }, name: 'Lower a priori', showlegend: true });
+                }
+                if (showZero.checked) {
+                    traces.push({ x: xRange, y: [0,0], mode: 'lines', line: { color: 'black', width: 0.5, dash: 'solid' }, showlegend: false });
+                }
+                
                 const layout = {
-                    title: `Bland-Altman: ${refAssay} vs. selected ranks`,
+                    title: `Bland‑Altman: ${refAssay} vs. primary rank ${primaryRankSelect.value} (other ranks as points)`,
                     xaxis: { title: 'Mean of reference and rank [Cq]', range: [20,42], showgrid: false, zeroline: false },
                     yaxis: { title: `Difference (${refAssay} - rank) [Cq]`, range: [-20,20], showgrid: false, zeroline: false },
                     hovermode: 'closest',
@@ -474,18 +518,25 @@
                     ] : []
                 };
                 Plotly.newPlot('baPlot', traces, layout);
+                
+                // Stats table
+                statsTableBody.innerHTML = `
+                    <tr><td>Bias</td><td>${primary.bias.toFixed(3)} ${showCIs ? `(95% CI: ${primary.bias_ci_low.toFixed(3)} – ${primary.bias_ci_high.toFixed(3)})` : ''}</td></tr>
+                    <tr><td>Upper LoA</td><td>${primary.loa_upper.toFixed(3)} ${showCIs ? `(95% CI: ${primary.loa_up_ci_low.toFixed(3)} – ${primary.loa_up_ci_high.toFixed(3)})` : ''}</td></tr>
+                    <tr><td>Lower LoA</td><td>${primary.loa_lower.toFixed(3)} ${showCIs ? `(95% CI: ${primary.loa_lo_ci_low.toFixed(3)} – ${primary.loa_lo_ci_high.toFixed(3)})` : ''}</td></tr>
+                    <tr><td>Number of pairs (primary rank)</td><td>${primary.mean_vals.length}</td></tr>
+                `;
             } catch (err) {
                 console.error(err);
                 alert('BA calculation failed: ' + err.message);
             }
         }
-
+        
         runRankingBtn.addEventListener('click', runRanking);
-        // Re-run BA when any control changes
-        const controls = [refSelect, methodSelect, aprioriMarginInput, showBias, showUpperLoA, showLowerLoA, showUpperApriori, showLowerApriori, showCI, showZero, showZoneLabels];
+        const controls = [refSelect, primaryRankSelect, methodSelect, aprioriMarginInput, showBias, showUpperLoA, showLowerLoA, showUpperApriori, showLowerApriori, showCI, showZero, showZoneLabels];
         controls.forEach(ctrl => ctrl.addEventListener('change', () => { if (rankingResult) updateBlandAltman(); }));
         for (let i=1; i<=5; i++) {
-            if (rankCheckboxes[i]) rankCheckboxes[i].addEventListener('change', () => { if (rankingResult) updateBlandAltman(); });
+            if (showRankCheck[i]) showRankCheck[i].addEventListener('change', () => { if (rankingResult) updateBlandAltman(); });
         }
     </script>
 </body>
