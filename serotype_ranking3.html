@@ -30,7 +30,7 @@
     </style>
 </head>
 <body>
-    <h1>Serotype Ranking & Bland‑Altman (coloured by dominant serotype) v0.12 </h1>
+    <h1>Serotype Ranking & Bland‑Altman (coloured by dominant serotype) v0.13 </h1>
     <p>Upload a CSV file. The <strong>first column</strong> is treated as a reference assay (e.g., piaB) and is <strong>excluded from ranking</strong>. All other columns are serotype assays (Ct values, ≥40 = negative).<br>
     Choose which serotype assays to exclude, then rank. Points are coloured by the dominant (rank1) serotype.<br>
     Select a reference assay (default = first column) and a primary rank for Bland‑Altman statistics. Overlay other ranks as coloured points.</p>
@@ -142,9 +142,9 @@
 
         let webR;
         let Rready = false;
-        let originalData = null;      // stores the original data (as JSON)
-        let serotypeCols = [];         // names of serotype columns (all except first)
-        let rankingResult = null;      // ranked data (with rank*_Cq, rank*_assay)
+        let originalData = null;
+        let serotypeCols = [];
+        let rankingResult = null;
 
         function showProgress(pct, msg) {
             progCont.style.display = 'block';
@@ -220,11 +220,9 @@
                 originalData = parsed.data;
                 const allCols = parsed.names;
                 if (allCols.length < 2) throw new Error('CSV must have at least 2 columns.');
-                // First column is the reference assay (piaB), remaining are serotype assays
                 const referenceCol = allCols[0];
                 serotypeCols = allCols.slice(1);
                 
-                // Populate checklist for serotype assays (exclude first column)
                 assayChecklistDiv.innerHTML = '';
                 serotypeCols.forEach(assay => {
                     const label = document.createElement('label');
@@ -232,7 +230,6 @@
                     assayChecklistDiv.appendChild(label);
                 });
                 
-                // Populate reference dropdown with all columns (including first)
                 refSelect.innerHTML = '';
                 allCols.forEach(col => {
                     const opt = document.createElement('option');
@@ -240,7 +237,6 @@
                     opt.textContent = col;
                     refSelect.appendChild(opt);
                 });
-                // Set default reference to the first column (piaB)
                 refSelect.value = referenceCol;
                 
                 controlPanel.style.display = 'block';
@@ -266,7 +262,6 @@
                     library(jsonlite)
                     data_json <- '${dataJson}'
                     dt <- as.data.table(fromJSON(data_json))
-                    # First column is reference (excluded from ranking), the rest are serotype assays
                     all_serotype_cols <- names(dt)[-1]
                     excluded <- ${excludedR}
                     assay_cols <- setdiff(all_serotype_cols, excluded)
@@ -296,7 +291,6 @@
                         set(dt, j = cq_cols[k], value = result_cq[, k])
                         set(dt, j = name_cols[k], value = result_name[, k])
                     }
-                    # Keep all original columns + the new rank columns
                     keep_cols <- c(names(dt)[1], assay_cols, cq_cols, name_cols)
                     out_dt <- dt[, ..keep_cols]
                     toJSON(as.data.frame(out_dt), auto_unbox = TRUE, digits = 8)
@@ -315,7 +309,7 @@
             }
         }
 
-        // Bland‑Altman: embed rankingResult, colour points by rank1_assay
+        // Bland‑Altman: embed rankingResult, colour points by rank1_assay (dominant serotype)
         async function updateBlandAltman() {
             if (!rankingResult) return;
             const refAssay = refSelect.value;
@@ -413,18 +407,22 @@
                         loa_lo_ci_high <- quantile(boot_lo, 0.975)
                     }
                     
-                    overlay_list <- list()
+                    # Collect overlay points with their rank1_assay
+                    overlay_points <- data.table()
                     for (i in seq_along(all_rank_cols)) {
                         rank_col <- all_rank_cols[i]
                         rk <- ranks[i]
                         valid <- !is.na(dt[[ref_col]]) & !is.na(dt[[rank_col]]) & dt[[rank_col]] < 40
                         if (sum(valid) > 0) {
-                            idx <- which(valid)
-                            overlay_list[[as.character(rk)]] <- list(
-                                x = (dt[[ref_col]][valid] + dt[[rank_col]][valid]) / 2,
-                                y = dt[[ref_col]][valid] - dt[[rank_col]][valid],
-                                rank1_assay = dt[["rank1_assay"]][idx]
-                            )
+                            overlay_points <- rbindlist(list(
+                                overlay_points,
+                                data.table(
+                                    x = (dt[[ref_col]][valid] + dt[[rank_col]][valid]) / 2,
+                                    y = dt[[ref_col]][valid] - dt[[rank_col]][valid],
+                                    rank1_assay = dt[["rank1_assay"]][valid],
+                                    rank = rk
+                                )
+                            ))
                         }
                     }
                     
@@ -442,7 +440,7 @@
                             mean_vals = mean_primary,
                             diff_vals = diff_primary
                         ),
-                        overlay = overlay_list
+                        overlay = overlay_points
                     )
                 }
                 toJSON(result, auto_unbox = TRUE, digits = 8)
@@ -458,50 +456,37 @@
                 const primary = result.primary;
                 const overlay = result.overlay;
                 
-                // Build traces: group points by (rank, rank1_assay)
-                const tracesByKey = new Map(); // key: "rank|assay"
-                const colors = {};
-                const getColor = (assay) => {
-                    if (!colors[assay]) {
-                        const hue = (assay.split('').reduce((a,b)=>a+b.charCodeAt(0),0) % 360);
-                        colors[assay] = `hsl(${hue}, 70%, 50%)`;
-                    }
-                    return colors[assay];
-                };
-                
-                for (const [rkStr, rkData] of Object.entries(overlay)) {
-                    const rk = parseInt(rkStr);
-                    const assays = rkData.rank1_assay;
-                    const xVals = rkData.x;
-                    const yVals = rkData.y;
-                    const groups = new Map(); // assay -> {x:[], y:[]}
-                    for (let i = 0; i < xVals.length; i++) {
-                        const assay = assays[i];
-                        if (!groups.has(assay)) groups.set(assay, {x:[], y:[]});
-                        groups.get(assay).x.push(xVals[i]);
-                        groups.get(assay).y.push(yVals[i]);
-                    }
-                    for (const [assay, pts] of groups) {
-                        const key = `${rk}|${assay}`;
-                        if (!tracesByKey.has(key)) {
-                            tracesByKey.set(key, { rank: rk, assay: assay, x: [], y: [] });
-                        }
-                        tracesByKey.get(key).x.push(...pts.x);
-                        tracesByKey.get(key).y.push(...pts.y);
+                // Build traces: group points by rank1_assay (dominant serotype)
+                const grouped = new Map(); // assay -> {x:[], y:[]}
+                if (overlay && overlay.x) {
+                    for (let i = 0; i < overlay.x.length; i++) {
+                        const assay = overlay.rank1_assay[i];
+                        if (!grouped.has(assay)) grouped.set(assay, {x:[], y:[]});
+                        grouped.get(assay).x.push(overlay.x[i]);
+                        grouped.get(assay).y.push(overlay.y[i]);
                     }
                 }
                 
+                // Colourblind-friendly palette (12 distinct colours)
+                const palette = [
+                    '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b',
+                    '#e377c2', '#7f7f7f', '#bcbd22', '#17becf', '#f4a261', '#e9c46a'
+                ];
+                let colorIdx = 0;
+                const colorMap = new Map();
                 const traces = [];
-                for (const [key, data] of tracesByKey.entries()) {
-                    const color = getColor(data.assay);
+                for (const [assay, pts] of grouped.entries()) {
+                    if (!colorMap.has(assay)) colorMap.set(assay, palette[colorIdx % palette.length]);
+                    colorIdx++;
                     traces.push({
-                        x: data.x,
-                        y: data.y,
+                        x: pts.x,
+                        y: pts.y,
                         type: 'scatter',
                         mode: 'markers',
-                        marker: { color: color, size: 8, opacity: 0.7 },
-                        name: `Rank ${data.rank}: ${data.assay}`,
-                        showlegend: true
+                        marker: { color: colorMap.get(assay), size: 8, opacity: 0.8 },
+                        name: assay,
+                        showlegend: true,
+                        legendgroup: assay
                     });
                 }
                 
@@ -556,6 +541,7 @@
                     yaxis: { title: `Difference (${refAssay} - rank) [Cq]`, range: [-20,20], showgrid: false, zeroline: false },
                     hovermode: 'closest',
                     plot_bgcolor: 'white',
+                    legend: { title: { text: 'Dominant serotype' } },
                     annotations: showZoneLabels.checked ? [
                         { x: 0.98, y: 0.95, xref: 'paper', yref: 'paper', text: `${refAssay} > rank`, showarrow: false, font: { size: 10 } },
                         { x: 0.98, y: 0.05, xref: 'paper', yref: 'paper', text: `rank > ${refAssay}`, showarrow: false, font: { size: 10 } }
