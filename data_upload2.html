@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Bland‑Altman Plot & ICC (Cq Values) v19.0</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        #progressContainer { width: 100%; max-width: 500px; margin: 15px 0; display: none; }
+        .progress-bg { background: #e0e0e0; border-radius: 6px; height: 28px; overflow: hidden; }
+        .progress-fill { width: 0%; height: 100%; background: #4CAF50; border-radius: 6px;
+                         text-align: center; color: white; line-height: 28px; font-weight: bold; }
+        #statusMsg { margin: 10px 0; color: #555; font-style: italic; }
+        #mainContainer { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+        #chartContainer { flex: 1 1 600px; min-width: 0; }
+        #controlPanel { flex: 0 0 280px; background: #f9f9f9; border: 1px solid #ddd;
+                        border-radius: 6px; padding: 15px; font-size: 13px; }
+        #controlPanel h3 { margin-top: 0; font-size: 15px; }
+        #controlPanel label { display: block; margin: 6px 0; cursor: pointer; }
+        #controlPanel select { width: 100%; padding: 4px; margin-bottom: 10px; }
+        #controlPanel input[type="checkbox"] { margin-right: 6px; }
+        #statsDisplay { margin-top: 12px; padding: 8px; background: #fff; border: 1px solid #eee;
+                        border-radius: 4px; line-height: 1.6; }
+        #statsDisplay span { font-weight: bold; }
+        #chart { width: 100%; height: 380px; }
+        .agreement-stat { margin-top: 10px; font-size: 14px; color: #666; }
+    </style>
+</head>
+<body>
+    <h1>Bland‑Altman Plot (Cq Values) v19.0</h1>
+    <p>Upload a CSV with a header. The first two columns must be numeric Cq values. (Row names are handled automatically.)</p>
+
+    <input type="file" id="csvFile" accept=".csv" />
+
+    <div id="progressContainer">
+        <div class="progress-bg">
+            <div id="progressBar" class="progress-fill" style="width: 0%;">0%</div>
+        </div>
+        <div id="statusMsg"></div>
+    </div>
+
+    <div id="mainContainer" style="display:none;">
+        <div id="chartContainer">
+            <div id="chart"></div>
+            <div id="iccResult" class="agreement-stat"></div>
+            <div id="kappaResult" class="agreement-stat"></div>
+        </div>
+        <div id="controlPanel">
+            <h3>Plot Controls</h3>
+            <label>Limit method:
+                <select id="methodSelect">
+                    <option value="parametric">Parametric (mean ± 1.96·SD)</option>
+                    <option value="nonparametric">Non‑parametric (percentiles)</option>
+                    <option value="mad" selected>MAD‑based (median ± 1.96·MAD)</option>
+                </select>
+            </label>
+            <label><input type="checkbox" id="showBias" checked> Show bias</label>
+            <label><input type="checkbox" id="showUpperLoA" checked> Show upper LoA</label>
+            <label><input type="checkbox" id="showLowerLoA" checked> Show lower LoA</label>
+            <label><input type="checkbox" id="showUpperApriori" checked> Show upper a priori limit</label>
+            <label><input type="checkbox" id="showLowerApriori" checked> Show lower a priori limit</label>
+            <label><input type="checkbox" id="showCI"> Show 95% CIs</label>
+            <label><input type="checkbox" id="showGreyPoints" checked> Show single pos. & double neg.</label>
+            <label><input type="checkbox" id="showZero" checked> Show zero line</label>
+            <div id="statsDisplay">Upload data to see statistics.</div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { WebR } from 'https://webr.r-wasm.org/v0.4.0/webr.mjs';
+
+        // ---- DOM elements ----
+        const fileInput      = document.getElementById('csvFile');
+        const progBar        = document.getElementById('progressBar');
+        const statusMsg      = document.getElementById('statusMsg');
+        const progCont       = document.getElementById('progressContainer');
+        const mainContainer  = document.getElementById('mainContainer');
+        const chartDiv       = document.getElementById('chart');
+        const iccDiv         = document.getElementById('iccResult');
+        const kappaDiv       = document.getElementById('kappaResult');
+        const statsDisplay   = document.getElementById('statsDisplay');
+        const methodSelect   = document.getElementById('methodSelect');
+        const cbBias         = document.getElementById('showBias');
+        const cbUpperLoA     = document.getElementById('showUpperLoA');
+        const cbLowerLoA     = document.getElementById('showLowerLoA');
+        const cbUpperApr     = document.getElementById('showUpperApriori');
+        const cbLowerApr     = document.getElementById('showLowerApriori');
+        const cbCI           = document.getElementById('showCI');
+        const cbGrey         = document.getElementById('showGreyPoints');
+        const cbZero         = document.getElementById('showZero');
+
+        // ---- Global state ----
+        let allStats = null;       // all computed statistics from R
+        let plotData = null;       // raw x,y,condition arrays
+        let iccText  = '';
+        let kappaText = '';
+        let currentMethod = 'mad';
+
+        function showProgress(pct, msg) {
+            progCont.style.display = 'block';
+            progBar.style.width = pct + '%';
+            progBar.textContent = pct + '%';
+            statusMsg.textContent = msg || '';
+        }
+        function hideProgress() {
+            setTimeout(() => { progCont.style.display = 'none'; }, 1200);
+        }
+
+        const webR = new WebR();
+        let Rready = false;
+
+        // ---- Initialise R ----
+        (async () => {
+            try {
+                showProgress(5, 'Starting R…');
+                await webR.init();
+                showProgress(20, 'Installing packages (data.table, jsonlite)…');
+                await webR.evalR('webr::install(c("data.table", "jsonlite"))');
+                showProgress(80, 'Loading libraries…');
+                await webR.evalR('library(data.table); library(jsonlite)');
+                Rready = true;
+                showProgress(100, 'Ready. Please upload a CSV file.');
+            } catch (e) {
+                showProgress(0, 'R init failed: ' + e.message);
+                console.error(e);
+                Rready = false;
+            } finally {
+                hideProgress();
+            }
+        })();
+
+        // ---- Decoder ----
+        async function decodeFileToCleanUTF8(file) {
+            const buffer = await file.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+            if (bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4B) {
+                throw new Error('This file appears to be an Excel (.xlsx) or ZIP archive. Please use "Save As → CSV UTF-8".');
+            }
+            let str;
+            if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) {
+                str = new TextDecoder('utf-16le').decode(bytes);
+            } else if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) {
+                str = new TextDecoder('utf-16be').decode(bytes);
+            } else {
+                str = new TextDecoder('utf-8').decode(bytes);
+                if (str.includes('\0')) {
+                    str = new TextDecoder('utf-16le').decode(bytes);
+                    if (str.includes('\0')) str = new TextDecoder('utf-16be').decode(bytes);
+                }
+            }
+            str = str.replace(/\0/g, '');
+            return new TextEncoder().encode(str);
+        }
+
+        // ---- Render the plot based on current controls ----
+        function renderPlot() {
+            if (!allStats || !plotData) return;
+
+            const m = currentMethod;
+            const s = allStats[m];   // selected method's statistics
+            const d = plotData;
+
+            const xGreen = [], yGreen = [], xGrey = [], yGrey = [];
+            for (let i = 0; i < d.condition.length; i++) {
+                const xi = d.means_all[i];
+                const yi = d.diffs_all[i];
+                if (d.condition[i]) { xGreen.push(xi); yGreen.push(yi); }
+                else { xGrey.push(xi); yGrey.push(yi); }
+            }
+
+            const traces = [];
+
+            // Green points (always shown)
+            traces.push({
+                x: xGreen, y: yGreen,
+                type: 'scatter', mode: 'markers',
+                marker: { size: 8, color: 'seagreen1', line: { color: 'seagreen', width: 1.5 } },
+                opacity: 0.8, name: 'Both < 40', showlegend: false
+            });
+
+            // Grey points (toggleable)
+            if (cbGrey.checked && xGrey.length > 0) {
+                traces.push({
+                    x: xGrey, y: yGrey,
+                    type: 'scatter', mode: 'markers',
+                    marker: { size: 6, color: 'grey', line: { color: 'darkgrey', width: 1.5 } },
+                    opacity: 0.4, name: '≥ 40', showlegend: false
+                });
+            }
+
+            const xMin = 20, xMax = 42;
+
+            // Helper to add a line trace
+            function addLine(yVal, color, dash, width, opacity, name, hoverinfo = 'name+y') {
+                traces.push({
+                    x: [xMin, xMax], y: [yVal, yVal],
+                    type: 'scatter', mode: 'lines',
+                    line: { color, width, dash: dash || 'solid' },
+                    opacity: opacity ?? 1,
+                    name, hoverinfo, showlegend: false
+                });
+            }
+            function addBand(yLow, yHigh, color, opacity = 0.15) {
+                // Band via two traces with fill
+                const idx = traces.length;
+                traces.push({
+                    x: [xMin, xMax], y: [yLow, yLow],
+                    type: 'scatter', mode: 'lines',
+                    line: { width: 0 }, showlegend: false, hoverinfo: 'none'
+                });
+                traces.push({
+                    x: [xMin, xMax], y: [yHigh, yHigh],
+                    type: 'scatter', mode: 'lines',
+                    line: { width: 0 }, showlegend: false, hoverinfo: 'none',
+                    fill: 'tonexty', fillcolor: color.replace(')', ',0.15)').replace('rgb', 'rgba')
+                });
+                // Override fillcolor
+                traces[traces.length-1].fillcolor = color;
+                traces[traces.length-1].opacity = opacity;
+            }
+
+            // Bias line
+            if (cbBias.checked) {
+                addLine(s.bias, 'blue', 'solid', 1.5, 0.8,
+                    `Bias = ${s.bias.toFixed(3)}`);
+                if (cbCI.checked && s.bias_ci_low != null) {
+                    addLine(s.bias_ci_low, 'blue', 'dash', 1, 0.4,
+                        `Bias CI low = ${s.bias_ci_low.toFixed(3)}`);
+                    addLine(s.bias_ci_high, 'blue', 'dash', 1, 0.4,
+                        `Bias CI high = ${s.bias_ci_high.toFixed(3)}`);
+                }
+            }
+
+            // Upper LoA
+            if (cbUpperLoA.checked) {
+                addLine(s.loa_upper, 'red', 'dash', 1.2, 0.7,
+                    `Upper LoA = ${s.loa_upper.toFixed(3)}`);
+                if (cbCI.checked && s.loa_upper_ci_low != null) {
+                    addLine(s.loa_upper_ci_low, 'red', 'dot', 0.8, 0.35,
+                        `Upper LoA CI low = ${s.loa_upper_ci_low.toFixed(3)}`);
+                    addLine(s.loa_upper_ci_high, 'red', 'dot', 0.8, 0.35,
+                        `Upper LoA CI high = ${s.loa_upper_ci_high.toFixed(3)}`);
+                }
+            }
+
+            // Lower LoA
+            if (cbLowerLoA.checked) {
+                addLine(s.loa_lower, 'red', 'dash', 1.2, 0.7,
+                    `Lower LoA = ${s.loa_lower.toFixed(3)}`);
+                if (cbCI.checked && s.loa_lower_ci_low != null) {
+                    addLine(s.loa_lower_ci_low, 'red', 'dot', 0.8, 0.35,
+                        `Lower LoA CI low = ${s.loa_lower_ci_low.toFixed(3)}`);
+                    addLine(s.loa_lower_ci_high, 'red', 'dot', 0.8, 0.35,
+                        `Lower LoA CI high = ${s.loa_lower_ci_high.toFixed(3)}`);
+                }
+            }
+
+            // A priori limits (based on bias ± 2, using bias from the selected method)
+            if (cbUpperApr.checked) {
+                addLine(s.bias + 2, 'green', 'solid', 1.5, 0.7,
+                    `Upper a priori limit = ${(s.bias + 2).toFixed(3)}`);
+            }
+            if (cbLowerApr.checked) {
+                addLine(s.bias - 2, 'green', 'solid', 1.5, 0.7,
+                    `Lower a priori limit = ${(s.bias - 2).toFixed(3)}`);
+            }
+
+            // Zero line
+            if (cbZero.checked) {
+                addLine(0, 'black', 'solid', 0.5, 0.25, 'LoE');
+            }
+
+            const layout = {
+                title: 'Cq agreement plot',
+                xaxis: { title: 'Mean of two measurements [Cq]', range: [20, 42], dtick: 5, showgrid: false },
+                yaxis: { title: 'Difference (marker A - marker B [Cq])', range: [-20, 20], dtick: 5, showgrid: false },
+                width: 650, height: 380,
+                margin: { l: 50, r: 20, b: 50, t: 40 },
+                hovermode: 'closest',
+                plot_bgcolor: 'white', paper_bgcolor: 'white'
+            };
+
+            Plotly.newPlot('chart', traces, layout);
+
+            // Update stats display
+            statsDisplay.innerHTML = `
+                <span>Bias:</span> ${s.bias.toFixed(3)}<br>
+                <span>Upper LoA:</span> ${s.loa_upper.toFixed(3)}<br>
+                <span>Lower LoA:</span> ${s.loa_lower.toFixed(3)}<br>
+                <span>Upper a priori:</span> ${(s.bias + 2).toFixed(3)}<br>
+                <span>Lower a priori:</span> ${(s.bias - 2).toFixed(3)}<br>
+                ${s.bias_ci_low != null ? `<span>Bias 95% CI:</span> [${s.bias_ci_low.toFixed(3)}, ${s.bias_ci_high.toFixed(3)}]<br>` : ''}
+                ${s.loa_upper_ci_low != null ? `<span>Upper LoA 95% CI:</span> [${s.loa_upper_ci_low.toFixed(3)}, ${s.loa_upper_ci_high.toFixed(3)}]<br>` : ''}
+                ${s.loa_lower_ci_low != null ? `<span>Lower LoA 95% CI:</span> [${s.loa_lower_ci_low.toFixed(3)}, ${s.loa_lower_ci_high.toFixed(3)}]` : ''}
+            `;
+        }
+
+        // ---- Attach event listeners to all controls ----
+        [methodSelect, cbBias, cbUpperLoA, cbLowerLoA, cbUpperApr, cbLowerApr, cbCI, cbGrey, cbZero].forEach(el => {
+            el.addEventListener('change', () => {
+                currentMethod = methodSelect.value;
+                renderPlot();
+            });
+        });
+
+        // ---- Handle CSV upload ----
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            if (!Rready) { alert('R is not ready. Please wait and try again.'); return; }
+
+            try {
+                showProgress(10, 'Reading file…');
+                const utf8Bytes = await decodeFileToCleanUTF8(file);
+                showProgress(40, 'Sending to R…');
+                await webR.FS.writeFile('/home/data.csv', utf8Bytes);
+                showProgress(60, 'Computing all statistics (parametric, non‑parametric, MAD)…');
+                chartDiv.innerHTML = '';
+                iccDiv.innerHTML = '';
+                kappaDiv.innerHTML = '';
+                mainContainer.style.display = 'none';
+
+                // ---- Massive R computation: all three methods + CIs ----
+                const rawResult = await webR.evalR(`
+                    library(data.table)
+                    library(jsonlite)
+
+                    dt <- fread("/home/data.csv", header = TRUE)
+                    cn <- names(dt)
+                    if (ncol(dt) >= 3 && (cn[1] == "" || cn[1] == "V1")) {
+                        cols_use <- 2:3
+                    } else {
+                        cols_use <- 1:2
+                    }
+                    dt <- dt[, ..cols_use]
+                    setnames(dt, c("Method1", "Method2"))
+                    dt <- na.omit(dt)
+
+                    dt[, Method1 := round(Method1, 2)]
+                    dt[, Method2 := round(Method2, 2)]
+                    dt[, mean_val := round((Method1 + Method2) / 2, 2)]
+                    dt[, diff_val := round(Method1 - Method2, 2)]
+                    dt[, condition := Method1 < 40 & Method2 < 40]
+
+                    sub <- dt[condition == TRUE]
+                    diffs_all <- sub$diff_val
+                    n <- length(diffs_all)
+
+                    # ---- Parametric ----
+                    mean_diff <- mean(diffs_all)
+                    sd_diff <- sd(diffs_all)
+                    loa_up_p <- mean_diff + 1.96 * sd_diff
+                    loa_lo_p <- mean_diff - 1.96 * sd_diff
+                    se_bias_p <- sd_diff / sqrt(n)
+                    t_crit <- qt(0.975, n-1)
+                    bias_ci_lo_p <- mean_diff - t_crit * se_bias_p
+                    bias_ci_hi_p <- mean_diff + t_crit * se_bias_p
+                    se_loa_p <- sqrt(3 * sd_diff^2 / n)
+                    loa_up_ci_lo_p <- loa_up_p - t_crit * se_loa_p
+                    loa_up_ci_hi_p <- loa_up_p + t_crit * se_loa_p
+                    loa_lo_ci_lo_p <- loa_lo_p - t_crit * se_loa_p
+                    loa_lo_ci_hi_p <- loa_lo_p + t_crit * se_loa_p
+
+                    # ---- Non‑parametric (percentiles) ----
+                    median_diff <- median(diffs_all)
+                    loa_up_np <- as.numeric(quantile(diffs_all, 0.975))
+                    loa_lo_np <- as.numeric(quantile(diffs_all, 0.025))
+
+                    # Bootstrap CI for non‑parametric (300 reps)
+                    set.seed(42)
+                    B <- 300
+                    boot_median <- boot_loa_up <- boot_loa_lo <- numeric(B)
+                    for (i in 1:B) {
+                        s <- sample(diffs_all, replace = TRUE)
+                        boot_median[i] <- median(s)
+                        boot_loa_up[i] <- as.numeric(quantile(s, 0.975))
+                        boot_loa_lo[i] <- as.numeric(quantile(s, 0.025))
+                    }
+                    bias_ci_lo_np <- as.numeric(quantile(boot_median, 0.025))
+                    bias_ci_hi_np <- as.numeric(quantile(boot_median, 0.975))
+                    loa_up_ci_lo_np <- as.numeric(quantile(boot_loa_up, 0.025))
+                    loa_up_ci_hi_np <- as.numeric(quantile(boot_loa_up, 0.975))
+                    loa_lo_ci_lo_np <- as.numeric(quantile(boot_loa_lo, 0.025))
+                    loa_lo_ci_hi_np <- as.numeric(quantile(boot_loa_lo, 0.975))
+
+                    # ---- MAD-based ----
+                    MAD_val <- median(abs(diffs_all - median_diff))
+                    loa_up_mad <- median_diff + 1.96 * MAD_val
+                    loa_lo_mad <- median_diff - 1.96 * MAD_val
+
+                    # Bootstrap CI for MAD-based
+                    boot_median2 <- boot_loa_up_mad <- boot_loa_lo_mad <- numeric(B)
+                    for (i in 1:B) {
+                        s <- sample(diffs_all, replace = TRUE)
+                        md <- median(s)
+                        mad_i <- median(abs(s - md))
+                        boot_median2[i] <- md
+                        boot_loa_up_mad[i] <- md + 1.96 * mad_i
+                        boot_loa_lo_mad[i] <- md - 1.96 * mad_i
+                    }
+                    bias_ci_lo_mad <- as.numeric(quantile(boot_median2, 0.025))
+                    bias_ci_hi_mad <- as.numeric(quantile(boot_median2, 0.975))
+                    loa_up_ci_lo_mad <- as.numeric(quantile(boot_loa_up_mad, 0.025))
+                    loa_up_ci_hi_mad <- as.numeric(quantile(boot_loa_up_mad, 0.975))
+                    loa_lo_ci_lo_mad <- as.numeric(quantile(boot_loa_lo_mad, 0.025))
+                    loa_lo_ci_hi_mad <- as.numeric(quantile(boot_loa_lo_mad, 0.975))
+
+                    toJSON(list(
+                        means_all  = dt$mean_val,
+                        diffs_all  = dt$diff_val,
+                        condition  = dt$condition,
+                        parametric = list(
+                            bias = mean_diff, loa_upper = loa_up_p, loa_lower = loa_lo_p,
+                            bias_ci_low = bias_ci_lo_p, bias_ci_high = bias_ci_hi_p,
+                            loa_upper_ci_low = loa_up_ci_lo_p, loa_upper_ci_high = loa_up_ci_hi_p,
+                            loa_lower_ci_low = loa_lo_ci_lo_p, loa_lower_ci_high = loa_lo_ci_hi_p
+                        ),
+                        nonparametric = list(
+                            bias = median_diff, loa_upper = loa_up_np, loa_lower = loa_lo_np,
+                            bias_ci_low = bias_ci_lo_np, bias_ci_high = bias_ci_hi_np,
+                            loa_upper_ci_low = loa_up_ci_lo_np, loa_upper_ci_high = loa_up_ci_hi_np,
+                            loa_lower_ci_low = loa_lo_ci_lo_np, loa_lower_ci_high = loa_lo_ci_hi_np
+                        ),
+                        mad = list(
+                            bias = median_diff, loa_upper = loa_up_mad, loa_lower = loa_lo_mad,
+                            bias_ci_low = bias_ci_lo_mad, bias_ci_high = bias_ci_hi_mad,
+                            loa_upper_ci_low = loa_up_ci_lo_mad, loa_upper_ci_high = loa_up_ci_hi_mad,
+                            loa_lower_ci_low = loa_lo_ci_lo_mad, loa_lower_ci_high = loa_lo_ci_hi_mad
+                        )
+                    ), auto_unbox = TRUE)
+                `);
+
+                const jsonStr = await rawResult.toString();
+                const fullData = JSON.parse(jsonStr);
+                allStats = {
+                    parametric: fullData.parametric,
+                    nonparametric: fullData.nonparametric,
+                    mad: fullData.mad
+                };
+                plotData = {
+                    means_all: fullData.means_all,
+                    diffs_all: fullData.diffs_all,
+                    condition: fullData.condition
+                };
+
+                // ---- ICC ----
+                showProgress(75, 'Computing ICC…');
+                const iccRaw = await webR.evalR(`
+                    library(data.table)
+                    dt <- fread("/home/data.csv", header = TRUE)
+                    cn <- names(dt)
+                    if (ncol(dt) >= 3 && (cn[1] == "" || cn[1] == "V1")) {
+                        cols_use <- 2:3 } else { cols_use <- 1:2 }
+                    dt <- dt[, ..cols_use]
+                    setnames(dt, c("Method1", "Method2"))
+                    dt <- na.omit(dt)
+                    dt <- dt[Method1 < 40 & Method2 < 40]
+                    result <- tryCatch({
+                        n <- nrow(dt)
+                        if (n < 3) stop("Need at least 3 complete pairs to compute ICC.")
+                        if (sd(dt$Method1) == 0 || sd(dt$Method2) == 0)
+                            stop("One method has no variability; ICC cannot be computed.")
+                        dt_long <- melt(dt, id.vars = NULL, measure.vars = c("Method1","Method2"),
+                                        variable.name = "method", value.name = "value")
+                        dt_long[, subject := rep(1:n, times = 2)]
+                        aov_m <- aov(value ~ factor(method) + factor(subject), data = dt_long)
+                        atab <- summary(aov_m)[[1]]
+                        MS_s <- atab["factor(subject)", "Mean Sq"]
+                        MS_e <- atab["Residuals", "Mean Sq"]
+                        if (MS_s <= MS_e) { "ICC = 0.0000 (no positive correlation detected)" }
+                        else {
+                            ICC <- (MS_s - MS_e) / (MS_s + MS_e)
+                            df_s <- n - 1; df_e <- n - 1
+                            F_obs <- MS_s / MS_e
+                            F_lo <- F_obs / qf(0.975, df_s, df_e)
+                            F_hi <- F_obs * qf(0.975, df_e, df_s)
+                            LCI <- (F_lo - 1) / (F_lo + 1)
+                            UCI <- (F_hi - 1) / (F_hi + 1)
+                            paste0("ICC (two-way consistency, single measure) = ",
+                                   round(ICC,3), " (95% CI: ", round(LCI,3), " \u2013 ", round(UCI,3), ")")
+                        }
+                    }, error = function(e) paste("ICC calculation failed:", e$message))
+                    result
+                `);
+                iccText = (await iccRaw.toString()).trim();
+                if (iccText.startsWith('"')) iccText = iccText.slice(1, -1);
+
+                // ---- Cohen's kappa (with double-negative check) ----
+                showProgress(78, 'Computing Cohen\'s kappa…');
+                const kappaRaw = await webR.evalR(`
+                    library(data.table)
+                    dt <- fread("/home/data.csv", header = TRUE)
+                    cn <- names(dt)
+                    if (ncol(dt) >= 3 && (cn[1] == "" || cn[1] == "V1")) {
+                        cols_use <- 2:3 } else { cols_use <- 1:2 }
+                    dt <- dt[, ..cols_use]
+                    setnames(dt, c("Method1", "Method2"))
+                    dt <- na.omit(dt)
+                    dt[, pos1 := ifelse(Method1 < 40, 1, 0)]
+                    dt[, pos2 := ifelse(Method2 < 40, 1, 0)]
+                    tab <- table(factor(dt$pos1, levels = c(0,1)), factor(dt$pos2, levels = c(0,1)))
+                    dn <- tab[1,1]   # double negatives
+                    if (is.na(dn) || dn < 2) {
+                        "KAPPA_SKIP: insufficient double negatives"
+                    } else {
+                        n <- sum(tab)
+                        po <- sum(diag(tab)) / n
+                        row_m <- rowSums(tab)/n; col_m <- colSums(tab)/n
+                        pe <- sum(row_m * col_m)
+                        kappa <- (po - pe) / (1 - pe)
+                        se <- sqrt((po * (1 - po)) / (n * (1 - pe)^2))
+                        ci_lo <- max(kappa - 1.96*se, -1)
+                        ci_hi <- min(kappa + 1.96*se, 1)
+                        paste0("Cohen's kappa (binary: <40 positive) = ",
+                               round(kappa,3), " (95% CI: ", round(ci_lo,3), " \u2013 ", round(ci_hi,3), ")")
+                    }
+                `);
+                kappaText = (await kappaRaw.toString()).trim();
+                if (kappaText.startsWith('"')) kappaText = kappaText.slice(1, -1);
+                if (kappaText.startsWith('KAPPA_SKIP')) {
+                    kappaText = '';  // hide kappa
+                }
+
+                showProgress(80, 'Rendering plot…');
+                mainContainer.style.display = 'flex';
+                iccDiv.textContent = iccText;
+                kappaDiv.textContent = kappaText;
+                currentMethod = methodSelect.value;
+                renderPlot();
+
+                showProgress(100, 'Plot, ICC and kappa ready!');
+            } catch (err) {
+                console.error(err);
+                showProgress(0, 'Error: ' + err.message);
+                alert('Processing failed: ' + err.message);
+                iccDiv.textContent = '';
+                kappaDiv.textContent = '';
+                mainContainer.style.display = 'none';
+            } finally {
+                hideProgress();
+            }
+        });
+    </script>
+</body>
+</html>
