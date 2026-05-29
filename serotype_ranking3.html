@@ -28,7 +28,7 @@
     </style>
 </head>
 <body>
-    <h1>Serotype Ranking & Bland‑Altman (multi‑rank overlay) v0.6 </h1>
+    <h1>Serotype Ranking & Bland‑Altman (multi‑rank overlay) v0.7 </h1>
     <p>Upload CSV (first column = sample ID). Assays with Ct ≥ 40 are ignored.<br>
     Choose assays to exclude, then rank. Select a reference assay, a primary rank for BA statistics, and optionally overlay other ranks as coloured points.</p>
 
@@ -137,9 +137,9 @@
 
         let webR;
         let Rready = false;
-        let currentData = null;       // original data as JSON
+        let currentData = null;
         let assayNames = [];
-        let rankingResult = null;      // ranked data (with rank*_Cq, rank*_assay)
+        let rankingResult = null;
 
         function showProgress(pct, msg) {
             progCont.style.display = 'block';
@@ -202,7 +202,6 @@
                 const utf8Bytes = await decodeFileToCleanUTF8(file);
                 await webR.FS.writeFile('/home/data.csv', utf8Bytes);
                 showProgress(30, 'Loading data...');
-                // Return JSON string from R
                 const res = await webR.evalR(`
                     library(jsonlite)
                     dt <- fread("/home/data.csv", header = TRUE)
@@ -216,14 +215,12 @@
                 const parsed = JSON.parse(jsonStr);
                 currentData = parsed.data;
                 assayNames = parsed.names.slice(1);
-                // Populate checklist
                 assayChecklistDiv.innerHTML = '';
                 assayNames.forEach(assay => {
                     const label = document.createElement('label');
                     label.innerHTML = `<input type="checkbox" class="excludeCheck" value="${assay}"> ${assay}`;
                     assayChecklistDiv.appendChild(label);
                 });
-                // Populate reference dropdown (all columns)
                 refSelect.innerHTML = '';
                 [...assayNames, parsed.names[0]].forEach(col => {
                     const opt = document.createElement('option');
@@ -241,11 +238,12 @@
             }
         });
 
-        // Ranking function
+        // Ranking function – fixed R vector construction
         async function runRanking() {
             if (!currentData) return;
             const excluded = Array.from(document.querySelectorAll('.excludeCheck:checked')).map(cb => cb.value);
-            const excludedJson = JSON.stringify(excluded);
+            // Build R character vector: c("ST1","ST3",...)
+            const excludedR = excluded.length ? `c(${excluded.map(s => `"${s.replace(/"/g, '\\"')}"`).join(', ')})` : 'c()';
             showProgress(40, 'Ranking serotypes (Ct<40 only)...');
             try {
                 const script = `
@@ -283,7 +281,7 @@
                         keep_cols <- c(names(dt)[1], assay_cols, cq_cols)
                         out_dt <- dt[, ..keep_cols]
                         toJSON(as.data.frame(out_dt), auto_unbox = TRUE, digits = 8)
-                    })(currentData, ${excludedJson})
+                    })(currentData, ${excludedR})
                 `;
                 const result = await webR.evalR(script);
                 const jsonStr = await result.toString();
@@ -516,7 +514,7 @@
                 Plotly.newPlot('baPlot', traces, layout);
                 
                 statsTableBody.innerHTML = `
-                    <tr><td>Basis</td><td>${primary.bias.toFixed(3)} ${showCIs ? `(95% CI: ${primary.bias_ci_low.toFixed(3)} – ${primary.bias_ci_high.toFixed(3)})` : ''}</td></tr>
+                    <tr><td>Bias</td><td>${primary.bias.toFixed(3)} ${showCIs ? `(95% CI: ${primary.bias_ci_low.toFixed(3)} – ${primary.bias_ci_high.toFixed(3)})` : ''}</td></tr>
                     <tr><td>Upper LoA</td><td>${primary.loa_upper.toFixed(3)} ${showCIs ? `(95% CI: ${primary.loa_up_ci_low.toFixed(3)} – ${primary.loa_up_ci_high.toFixed(3)})` : ''}</td></tr>
                     <tr><td>Lower LoA</td><td>${primary.loa_lower.toFixed(3)} ${showCIs ? `(95% CI: ${primary.loa_lo_ci_low.toFixed(3)} – ${primary.loa_lo_ci_high.toFixed(3)})` : ''}</td></tr>
                     <tr><td>Number of pairs (primary rank)</td><td>${primary.mean_vals.length}</td></tr>
