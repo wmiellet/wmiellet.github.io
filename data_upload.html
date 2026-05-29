@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bland‑Altman Plot & ICC (Cq Values) v15.0</title>
+    <title>Bland‑Altman Plot & ICC (Cq Values)</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -16,7 +16,7 @@
     </style>
 </head>
 <body>
-    <h1>Bland‑Altman Plot (Cq Values) v15.0</h1>
+    <h1>Bland‑Altman Plot (Cq Values)</h1>
     <p>Upload a CSV with a header. The first two columns must be numeric Cq values. (Row names are handled automatically.)</p>
 
     <input type="file" id="csvFile" accept=".csv" />
@@ -127,7 +127,7 @@
                 chartDiv.innerHTML = '';
                 iccDiv.innerHTML = '';
 
-                // R: read CSV, handle row names, compute BA statistics
+                // ----- Bland‑Altman calculations -----
                 const result = await webR.evalR(`
                     library(data.table)
                     library(jsonlite)
@@ -167,54 +167,72 @@
                 const jsonStr = await result.toString();
                 const d = JSON.parse(jsonStr);
 
-                // ---- Compute ICC (two‑way consistency, single) ----
-                showProgress(75, 'Computing ICC…');
-                const iccResult = await webR.evalR(`
-                    library(data.table)
+                // ----- ICC calculation (with its own try/catch) -----
+                let iccText = '';
+                try {
+                    showProgress(75, 'Computing ICC…');
+                    const iccResult = await webR.evalR(`
+                        library(data.table)
 
-                    dt <- fread("/home/data.csv", header = TRUE)
-                    cn <- names(dt)
-                    if (ncol(dt) >= 3 && (cn[1] == "" || cn[1] == "V1")) {
-                        cols_use <- 2:3
-                    } else {
-                        cols_use <- 1:2
-                    }
-                    dt <- dt[, ..cols_use]
-                    setnames(dt, c("Method1", "Method2"))
-                    dt <- na.omit(dt)
-                    dt <- dt[Method1 < 40 & Method2 < 40]
+                        dt <- fread("/home/data.csv", header = TRUE)
+                        cn <- names(dt)
+                        if (ncol(dt) >= 3 && (cn[1] == "" || cn[1] == "V1")) {
+                            cols_use <- 2:3
+                        } else {
+                            cols_use <- 1:2
+                        }
+                        dt <- dt[, ..cols_use]
+                        setnames(dt, c("Method1", "Method2"))
+                        dt <- na.omit(dt)
+                        dt <- dt[Method1 < 40 & Method2 < 40]
 
-                    n <- nrow(dt)
-                    if (n < 3) stop("Need at least 3 complete pairs to compute ICC.")
+                        n <- nrow(dt)
+                        if (n < 3) stop("Need at least 3 complete pairs to compute ICC.")
 
-                    dt_long <- melt(dt, id.vars = NULL, measure.vars = c("Method1", "Method2"),
-                                    variable.name = "method", value.name = "value")
-                    dt_long[, subject := rep(1:n, times = 2)]
+                        # Check for constant values (zero variance)
+                        if (var(dt$Method1) == 0 || var(dt$Method2) == 0)
+                            stop("One of the methods has zero variance in the subset; ICC cannot be computed.")
 
-                    anova_model <- aov(value ~ factor(method) + factor(subject), data = dt_long)
-                    ms <- summary(anova_model)[[1]]["Mean Sq"]
-                    MS_subject <- ms[["factor(subject)"]]
-                    MS_error   <- ms[["Residuals"]]
+                        dt_long <- melt(dt, id.vars = NULL, measure.vars = c("Method1", "Method2"),
+                                        variable.name = "method", value.name = "value")
+                        dt_long[, subject := rep(1:n, times = 2)]
 
-                    ICC <- (MS_subject - MS_error) / (MS_subject + MS_error)
+                        anova_model <- aov(value ~ factor(method) + factor(subject), data = dt_long)
+                        ms <- summary(anova_model)[[1]]["Mean Sq"]
+                        MS_subject <- ms[["factor(subject)"]]
+                        MS_error   <- ms[["Residuals"]]
 
-                    df_subject <- n - 1
-                    df_error   <- (n - 1) * (2 - 1)
+                        if (MS_subject <= MS_error) {
+                            ICC <- 0
+                            LCI <- 0
+                            UCI <- 0
+                            ci_note <- "(CI not reliable when ICC <= 0)"
+                        } else {
+                            ICC <- (MS_subject - MS_error) / (MS_subject + MS_error)
 
-                    F_obs <- MS_subject / MS_error
-                    F_lower <- F_obs / qf(0.975, df_subject, df_error)
-                    F_upper <- F_obs * qf(0.975, df_error, df_subject)
+                            df_subject <- n - 1
+                            df_error   <- (n - 1) * (2 - 1)
 
-                    LCI <- (F_lower - 1) / (F_lower + 1)
-                    UCI <- (F_upper - 1) / (F_upper + 1)
+                            F_obs <- MS_subject / MS_error
+                            F_lower <- F_obs / qf(0.975, df_subject, df_error)
+                            F_upper <- F_obs * qf(0.975, df_error, df_subject)
 
-                    paste0("ICC (two‑way consistency, single measure) = ",
-                           round(ICC, 4),
-                           " (95% CI: ",
-                           round(LCI, 4), " – ", round(UCI, 4), ")")
-                `);
+                            LCI <- (F_lower - 1) / (F_lower + 1)
+                            UCI <- (F_upper - 1) / (F_upper + 1)
+                            ci_note <- ""
+                        }
 
-                const iccText = await iccResult.toString();
+                        paste0("ICC (two‑way consistency, single measure) = ",
+                               round(ICC, 4),
+                               " (95% CI: ",
+                               round(LCI, 4), " – ", round(UCI, 4), ")",
+                               ci_note)
+                    `);
+                    iccText = await iccResult.toString();
+                } catch (iccErr) {
+                    console.error('ICC calculation error:', iccErr);
+                    iccText = 'ICC calculation failed: ' + (iccErr.message || 'unknown error');
+                }
 
                 showProgress(80, 'Rendering plot…');
 
@@ -251,71 +269,48 @@
 
                 const xMin = 0, xMax = 45;
 
-                // ---- Horizontal lines (INTERACTIVE) ----
+                // ---- Horizontal lines (interactive) ----
                 const lines = [
                     {
-                        x: [xMin, xMax],
-                        y: [d.median, d.median],
-                        type: 'scatter',
-                        mode: 'lines',
-                        line: { color: 'black', width: 1 },
-                        opacity: 0.5,
+                        x: [xMin, xMax], y: [d.median, d.median],
+                        type: 'scatter', mode: 'lines',
+                        line: { color: 'black', width: 1 }, opacity: 0.5,
                         name: `Median = ${d.median.toFixed(3)}`,
-                        hoverinfo: 'name+y',
-                        showlegend: false
+                        hoverinfo: 'name+y', showlegend: false
                     },
                     {
-                        x: [xMin, xMax],
-                        y: [d.median + 2, d.median + 2],
-                        type: 'scatter',
-                        mode: 'lines',
+                        x: [xMin, xMax], y: [d.median + 2, d.median + 2],
+                        type: 'scatter', mode: 'lines',
                         line: { color: 'red', width: 2 },
                         name: `Median + 2 = ${(d.median + 2).toFixed(3)}`,
-                        hoverinfo: 'name+y',
-                        showlegend: false
+                        hoverinfo: 'name+y', showlegend: false
                     },
                     {
-                        x: [xMin, xMax],
-                        y: [d.median - 2, d.median - 2],
-                        type: 'scatter',
-                        mode: 'lines',
+                        x: [xMin, xMax], y: [d.median - 2, d.median - 2],
+                        type: 'scatter', mode: 'lines',
                         line: { color: 'red', width: 2 },
                         name: `Median - 2 = ${(d.median - 2).toFixed(3)}`,
-                        hoverinfo: 'name+y',
-                        showlegend: false
+                        hoverinfo: 'name+y', showlegend: false
                     },
                     {
-                        x: [xMin, xMax],
-                        y: [d.loa_upper, d.loa_upper],
-                        type: 'scatter',
-                        mode: 'lines',
-                        line: { color: 'black', width: 1, dash: 'dash' },
-                        opacity: 0.5,
+                        x: [xMin, xMax], y: [d.loa_upper, d.loa_upper],
+                        type: 'scatter', mode: 'lines',
+                        line: { color: 'black', width: 1, dash: 'dash' }, opacity: 0.5,
                         name: `Upper LOA = ${d.loa_upper.toFixed(3)}`,
-                        hoverinfo: 'name+y',
-                        showlegend: false
+                        hoverinfo: 'name+y', showlegend: false
                     },
                     {
-                        x: [xMin, xMax],
-                        y: [d.loa_lower, d.loa_lower],
-                        type: 'scatter',
-                        mode: 'lines',
-                        line: { color: 'black', width: 1, dash: 'dash' },
-                        opacity: 0.5,
+                        x: [xMin, xMax], y: [d.loa_lower, d.loa_lower],
+                        type: 'scatter', mode: 'lines',
+                        line: { color: 'black', width: 1, dash: 'dash' }, opacity: 0.5,
                         name: `Lower LOA = ${d.loa_lower.toFixed(3)}`,
-                        hoverinfo: 'name+y',
-                        showlegend: false
+                        hoverinfo: 'name+y', showlegend: false
                     },
                     {
-                        x: [xMin, xMax],
-                        y: [0, 0],
-                        type: 'scatter',
-                        mode: 'lines',
-                        line: { color: 'black', width: 0.5 },
-                        opacity: 0.25,
-                        name: 'Zero',
-                        hoverinfo: 'name+y',
-                        showlegend: false
+                        x: [xMin, xMax], y: [0, 0],
+                        type: 'scatter', mode: 'lines',
+                        line: { color: 'black', width: 0.5 }, opacity: 0.25,
+                        name: 'Zero', hoverinfo: 'name+y', showlegend: false
                     }
                 ];
 
@@ -331,7 +326,7 @@
 
                 Plotly.newPlot('chart', [traceGreen, traceGrey, ...lines], layout);
 
-                // Display ICC result
+                // Display ICC result (or error message)
                 iccDiv.textContent = iccText;
 
                 showProgress(100, 'Plot and ICC ready!');
@@ -339,6 +334,7 @@
                 console.error(err);
                 showProgress(0, 'Error: ' + err.message);
                 alert('Processing failed: ' + err.message);
+                iccDiv.textContent = '';
             } finally {
                 hideProgress();
             }
