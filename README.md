@@ -40,7 +40,7 @@ Figure 2: [Legend text].
 [Text].
 
 ## Produce an Agreement plot with your own data!
-[Upload a CSV and create a plot directly in your browser](https://wmiellet.github.io/data_upload3.html).
+[Upload a CSV and create a plot directly in your browser](https://wmiellet.github.io/data_upload4.html).
 
 [serotype ranking script](https://wmiellet.github.io/serotype_ranking.html).
 
@@ -62,12 +62,12 @@ To be included:
 - reference to Marshall paper.
 - 'BN' rule.
 - example data.
-- options to assess ICC[3,1] (as quantitive agreement index), Cohen's kappa coefficients (as binary classification index).
-- options to compare correlation plot to X/Y plot.
-- options to transform BA plot to non-parametric LoAs or MAD-based LoAs.
-- options to enable 95% CI intervals of bias (mean/median difference) and LoAs.
-- options to enable predefined acceptable limits and adjust values.
-- data upload option for users to explore graphical tools with their own lab data.
+- <del>options to assess ICC[3,1] (as quantitive agreement index), Cohen's kappa coefficients (as binary classification index).</del>
+- <del>options to compare correlation plot to X/Y plot.</del>
+- <del>options to transform BA plot to non-parametric LoAs or MAD-based LoAs.</del>
+- <del>options to enable 95% CI intervals of bias (mean/median difference) and LoAs.</del>
+- <del>options to enable predefined acceptable limits and adjust values.</del>
+- <del>data upload option for users to explore graphical tools with their own lab data.</del>
 - section on Cq tresholds upon discovery of multi-modal Cq distribution.
 - section on linkage analysis with digital PCR.
 - link to online laboratory protocol (to be published).
