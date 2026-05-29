@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Serotype Ranking by Ct Value (WebR)</title>
+    <title>Serotype Ranking by Ct Value (WebR) v0.1 </title>
     <style>
         body { font-family: sans-serif; padding: 20px; }
         #progressContainer { width: 100%; max-width: 500px; margin: 15px 0; display: none; }
@@ -21,8 +21,8 @@
     </style>
 </head>
 <body>
-    <h1>Serotype Ranking by Lowest Ct Value</h1>
-    <p>Upload a CSV file. The first column is ignored (e.g., sample ID). All subsequent columns are assumed to be serotype assays with Ct values.<br>
+    <h1>Serotype Ranking by Lowest Ct Value v0.1 </h1>
+    <p>Upload a CSV file. The first column is ignored (e.g., sample ID). All subsequent columns are serotype assays with Ct values.<br>
     For each row, the assay with the <strong>lowest Ct</strong> gets rank 1, second lowest rank 2, etc.<br>
     If Ct ≥ 40 or missing, the assay name is replaced by <code>"-"</code>. The ranking uses only numeric values < 40.</p>
 
@@ -49,7 +49,6 @@
     <script type="module">
         import { WebR } from 'https://webr.r-wasm.org/v0.4.0/webr.mjs';
 
-        // DOM elements
         const fileInput = document.getElementById('csvFile');
         const progBar = document.getElementById('progressBar');
         const statusMsg = document.getElementById('statusMsg');
@@ -59,7 +58,7 @@
         const tableHead = document.getElementById('tableHead');
         const tableBody = document.getElementById('tableBody');
 
-        let processedData = null;   // will hold the full JSON result
+        let processedData = null;
 
         function showProgress(pct, msg) {
             progCont.style.display = 'block';
@@ -78,10 +77,10 @@
             try {
                 showProgress(5, 'Starting R…');
                 await webR.init();
-                showProgress(20, 'Installing data.table…');
-                await webR.evalR('webr::install("data.table")');
-                showProgress(50, 'Loading library…');
-                await webR.evalR('library(data.table)');
+                showProgress(20, 'Installing data.table and jsonlite…');
+                await webR.evalR('webr::install(c("data.table", "jsonlite"))');
+                showProgress(50, 'Loading libraries…');
+                await webR.evalR('library(data.table); library(jsonlite)');
                 Rready = true;
                 showProgress(100, 'Ready. Please upload a CSV file.');
             } catch (e) {
@@ -116,10 +115,8 @@
         }
 
         function renderTable(data, columns) {
-            // Clear existing
             tableHead.innerHTML = '';
             tableBody.innerHTML = '';
-            // Create header row
             const headerRow = document.createElement('tr');
             columns.forEach(col => {
                 const th = document.createElement('th');
@@ -128,7 +125,6 @@
             });
             tableHead.appendChild(headerRow);
 
-            // Show only first 10 rows for performance
             const rowsToShow = data.slice(0, 10);
             for (const row of rowsToShow) {
                 const tr = document.createElement('tr');
@@ -156,27 +152,22 @@
                 await webR.FS.writeFile('/home/data.csv', utf8Bytes);
                 showProgress(50, 'Ranking serotypes…');
 
-                // R code: reads CSV, ranks all columns except the first
+                // R code: ranks all columns except the first, returns JSON string
                 const rankingScript = `
                     dt <- fread("/home/data.csv", header = TRUE)
                     if (ncol(dt) < 2) stop("CSV must have at least 2 columns (ID + at least one assay)")
                     
-                    # Keep original column names for later
                     original_names <- names(dt)
                     first_col_name <- original_names[1]
                     assay_cols <- original_names[-1]
                     
-                    # Ensure assay columns are numeric
                     dt[, (assay_cols) := lapply(.SD, as.numeric), .SDcols = assay_cols]
                     
-                    # Ranking function: for each row, get order of assays by value (lowest first, NA last)
                     rank_assays <- function(row_vals, assay_names, n_ranks = 5, cutoff = 40) {
-                        # Replace values >= cutoff or NA with Inf so they never get ranked
                         vals <- row_vals
                         vals[is.na(vals) | vals >= cutoff] <- Inf
                         o <- order(vals, na.last = TRUE)
                         top_idx <- o[seq_len(min(n_ranks, length(o)))]
-                        # Output columns: assay name and Ct value
                         out_names <- rep("-", n_ranks)
                         out_vals <- rep(NA_real_, n_ranks)
                         for (i in seq_along(top_idx)) {
@@ -189,12 +180,9 @@
                     n_ranks <- 5
                     cutoff <- 40
                     
-                    # Prepare new column names
                     new_name_cols <- paste0("rank", 1:n_ranks, "_assay")
                     new_val_cols  <- paste0("rank", 1:n_ranks, "_Cq")
                     
-                    # Apply row-wise (fast enough for moderate data, but could use matrix apply)
-                    # Convert assays to matrix for speed
                     assay_mat <- as.matrix(dt[, ..assay_cols])
                     n_rows <- nrow(dt)
                     result_names <- matrix("-", nrow = n_rows, ncol = n_ranks)
@@ -206,24 +194,22 @@
                         result_vals[i, ] <- res$values
                     }
                     
-                    # Add as new columns
                     for (k in 1:n_ranks) {
                         set(dt, j = new_name_cols[k], value = result_names[, k])
                         set(dt, j = new_val_cols[k], value = result_vals[, k])
                     }
                     
-                    # Prepare output JSON: full data.table plus column names
-                    list(
+                    # Convert to JSON string
+                    out_list <- list(
                         data = as.data.frame(dt),
-                        columns = c(original_names, new_name_cols, new_val_cols),
-                        first_col = first_col_name,
-                        assay_cols = assay_cols
+                        columns = c(original_names, new_name_cols, new_val_cols)
                     )
+                    toJSON(out_list, auto_unbox = TRUE, digits = 8)
                 `;
 
                 const rawResult = await webR.evalR(rankingScript);
-                const resultJson = await rawResult.toJson();
-                const parsed = JSON.parse(resultJson);
+                const jsonString = await rawResult.toString();
+                const parsed = JSON.parse(jsonString);
                 const resultData = parsed.data;
                 const allColumns = parsed.columns;
 
@@ -244,10 +230,8 @@
             }
         });
 
-        // Download button: export processed CSV
         downloadBtn.addEventListener('click', () => {
             if (!processedData) return;
-            // Convert array of objects to CSV
             const columns = Object.keys(processedData[0]);
             const csvRows = [];
             csvRows.push(columns.join(','));
