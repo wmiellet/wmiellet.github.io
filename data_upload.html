@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bland‑Altman Plot (Cq Values)</title>
+    <title>Bland‑Altman Plot (Cq Values) v7.0 </title>
     <style>
         body { font-family: sans-serif; padding: 20px; }
         #progressContainer { width: 100%; max-width: 500px; margin: 15px 0; display: none; }
@@ -14,7 +14,7 @@
     </style>
 </head>
 <body>
-    <h1>Bland‑Altman Plot (Cq Values) v6.0 </h1>
+    <h1>Bland‑Altman Plot (Cq Values) v7.0 </h1>
     <p>Upload a CSV with a header. The first two columns must be numeric Cq values.</p>
 
     <input type="file" id="csvFile" accept=".csv" />
@@ -73,30 +73,25 @@
             }
         })();
 
-        // ---- Robust decoder that guarantees no null bytes ----
-        async function readFileAsUTF8(file) {
+        // ---- Decoder: returns clean string AND its UTF-8 bytes ----
+        async function decodeFileToCleanUTF8(file) {
             const buffer = await file.arrayBuffer();
             const bytes = new Uint8Array(buffer);
 
-            // 1. ZIP / Excel detection
+            // ZIP detection
             if (bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4B) {
-                throw new Error(
-                    'This file appears to be an Excel (.xlsx) or ZIP archive. ' +
-                    'Please open it in Excel and use File → Save As → CSV UTF-8 (.csv).'
-                );
+                throw new Error('This file appears to be an Excel (.xlsx) or ZIP archive. Please use "Save As → CSV UTF-8".');
             }
 
-            // 2. Try common encodings, always fallback to UTF-16 LE
+            // Decode the string from whatever encoding
             let str;
             if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) {
                 str = new TextDecoder('utf-16le').decode(bytes);
             } else if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) {
                 str = new TextDecoder('utf-16be').decode(bytes);
             } else {
-                // No BOM – start with UTF-8
                 str = new TextDecoder('utf-8').decode(bytes);
                 if (str.includes('\0')) {
-                    // Try UTF-16 LE (most common Windows UCS-2)
                     str = new TextDecoder('utf-16le').decode(bytes);
                     if (str.includes('\0')) {
                         str = new TextDecoder('utf-16be').decode(bytes);
@@ -104,22 +99,17 @@
                 }
             }
 
-            // 3. AGGRESSIVELY remove any null bytes that might remain
-            //    (e.g. from double-encoding or a corrupted BOM)
+            // Remove any stray null characters
             str = str.replace(/\0/g, '');
 
-            // 4. Log the first 200 chars for debugging (check in F12 console)
+            // Log for debugging (check in F12 console)
             console.log('Decoded CSV (first 200 chars):', str.substring(0, 200));
 
-            // 5. If the string is empty or looks binary after cleaning, reject
-            if (str.length === 0 || /^[\x00-\x08\x0B\x0C\x0E-\x1F]+$/.test(str.substring(0, 50))) {
-                throw new Error(
-                    'The file does not contain valid CSV text. ' +
-                    'Try re‑saving it as "CSV UTF-8 (Comma delimited)" from Excel or R using write.csv(..., fileEncoding="UTF-8").'
-                );
-            }
+            // Encode this clean string as UTF-8 bytes
+            const encoder = new TextEncoder();
+            const utf8Bytes = encoder.encode(str);   // Uint8Array
 
-            return str;
+            return { str, utf8Bytes };
         }
 
         // ---- Handle CSV upload ----
@@ -133,11 +123,12 @@
             }
 
             try {
-                showProgress(10, 'Reading file and verifying format…');
-                const csvText = await readFileAsUTF8(file);
+                showProgress(10, 'Reading file and converting to UTF-8…');
+                const { utf8Bytes } = await decodeFileToCleanUTF8(file);
 
-                showProgress(40, 'Sending to R…');
-                await webR.FS.writeFile('/home/data.csv', csvText);
+                showProgress(40, 'Writing clean UTF-8 to R…');
+                // Write the Uint8Array directly – no further encoding
+                await webR.FS.writeFile('/home/data.csv', utf8Bytes);
 
                 showProgress(60, 'Processing and generating plot…');
                 plotCont.innerHTML = '';
