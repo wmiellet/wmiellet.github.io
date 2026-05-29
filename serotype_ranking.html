@@ -1,50 +1,277 @@
-library(data.table)
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Serotype Ranking by Ct Value (WebR)</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        #progressContainer { width: 100%; max-width: 500px; margin: 15px 0; display: none; }
+        .progress-bg { background: #e0e0e0; border-radius: 6px; height: 28px; overflow: hidden; }
+        .progress-fill { width: 0%; height: 100%; background: #4CAF50; border-radius: 6px;
+                         text-align: center; color: white; line-height: 28px; font-weight: bold; }
+        #statusMsg { margin: 10px 0; color: #555; font-style: italic; }
+        #outputArea { margin-top: 20px; }
+        #resultTable { width: 100%; border-collapse: collapse; font-size: 13px; overflow-x: auto; display: block; }
+        #resultTable th, #resultTable td { border: 1px solid #ddd; padding: 6px; text-align: left; }
+        #resultTable th { background-color: #f2f2f2; }
+        .download-btn { background-color: #4CAF50; color: white; padding: 8px 16px;
+                        border: none; border-radius: 4px; cursor: pointer; margin: 10px 0; }
+        .download-btn:hover { background-color: #45a049; }
+        .info { margin: 10px 0; font-size: 14px; color: #2c3e50; }
+    </style>
+</head>
+<body>
+    <h1>Serotype Ranking by Lowest Ct Value</h1>
+    <p>Upload a CSV file. The first column is ignored (e.g., sample ID). All subsequent columns are assumed to be serotype assays with Ct values.<br>
+    For each row, the assay with the <strong>lowest Ct</strong> gets rank 1, second lowest rank 2, etc.<br>
+    If Ct ≥ 40 or missing, the assay name is replaced by <code>"-"</code>. The ranking uses only numeric values < 40.</p>
 
-rank_assays <- function(dt, 
-                        assay_cols = NULL, 
-                        n_ranks = 5, 
-                        cutoff = 40) {
-  # If assay columns not specified, use all columns except the first (piaB)
-  if (is.null(assay_cols)) {
-    assay_cols <- names(dt)[-1]
-  }
-  
-  # Ensure all assay columns are numeric
-  dt[, (assay_cols) := lapply(.SD, as.numeric), .SDcols = assay_cols]
-  
-  # For each row, get indices of n_ranks smallest values (ties -> first encountered)
-  mat <- as.matrix(dt[, ..assay_cols])
-  n_rows <- nrow(mat)
-  
-  # Pre‑allocate matrices for results
-  rank_names <- matrix(NA_character_, nrow = n_rows, ncol = n_ranks)
-  rank_values <- matrix(NA_real_, nrow = n_rows, ncol = n_ranks)
-  
-  for (i in seq_len(n_rows)) {
-    row_vals <- mat[i, ]
-    # Order by value (NA placed last)
-    o <- order(row_vals, na.last = TRUE)
-    # Take first n_ranks indices
-    top_idx <- o[seq_len(min(n_ranks, length(o)))]
-    # Column names
-    rank_names[i, seq_along(top_idx)] <- assay_cols[top_idx]
-    # Actual Ct values
-    rank_values[i, seq_along(top_idx)] <- row_vals[top_idx]
-  }
-  
-  # Add columns to the data.table
-  for (k in seq_len(n_ranks)) {
-    # Assay name column: replace with '-' if Ct >= cutoff or NA
-    name_col <- paste0("rank", k, "_assay")
-    val_col  <- paste0("rank", k, "_Cq")
-    
-    dt[, (name_col) := rank_names[, k]]
-    dt[, (val_col)  := rank_values[, k]]
-    
-    # Apply cutoff: if value >= cutoff or is NA, set assay name to '-'
-    dt[get(val_col) >= cutoff | is.na(get(val_col)), (name_col) := "-"]
-    # (Ct values remain numeric, even if above cutoff)
-  }
-  
-  return(dt)
-}
+    <input type="file" id="csvFile" accept=".csv" />
+
+    <div id="progressContainer">
+        <div class="progress-bg">
+            <div id="progressBar" class="progress-fill" style="width: 0%;">0%</div>
+        </div>
+        <div id="statusMsg"></div>
+    </div>
+
+    <div id="outputArea" style="display:none;">
+        <button id="downloadBtn" class="download-btn">Download processed CSV</button>
+        <div class="info">Showing first 10 rows of the result. Full table can be downloaded.</div>
+        <div style="overflow-x: auto;">
+            <table id="resultTable">
+                <thead id="tableHead"></thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script type="module">
+        import { WebR } from 'https://webr.r-wasm.org/v0.4.0/webr.mjs';
+
+        // DOM elements
+        const fileInput = document.getElementById('csvFile');
+        const progBar = document.getElementById('progressBar');
+        const statusMsg = document.getElementById('statusMsg');
+        const progCont = document.getElementById('progressContainer');
+        const outputArea = document.getElementById('outputArea');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const tableHead = document.getElementById('tableHead');
+        const tableBody = document.getElementById('tableBody');
+
+        let processedData = null;   // will hold the full JSON result
+
+        function showProgress(pct, msg) {
+            progCont.style.display = 'block';
+            progBar.style.width = pct + '%';
+            progBar.textContent = pct + '%';
+            statusMsg.textContent = msg || '';
+        }
+        function hideProgress() {
+            setTimeout(() => { progCont.style.display = 'none'; }, 1000);
+        }
+
+        const webR = new WebR();
+        let Rready = false;
+
+        (async () => {
+            try {
+                showProgress(5, 'Starting R…');
+                await webR.init();
+                showProgress(20, 'Installing data.table…');
+                await webR.evalR('webr::install("data.table")');
+                showProgress(50, 'Loading library…');
+                await webR.evalR('library(data.table)');
+                Rready = true;
+                showProgress(100, 'Ready. Please upload a CSV file.');
+            } catch (e) {
+                showProgress(0, 'R init failed: ' + e.message);
+                console.error(e);
+                Rready = false;
+            } finally {
+                hideProgress();
+            }
+        })();
+
+        async function decodeFileToCleanUTF8(file) {
+            const buffer = await file.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+            if (bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4B) {
+                throw new Error('This file appears to be an Excel (.xlsx) or ZIP archive. Please use "Save As → CSV UTF-8".');
+            }
+            let str;
+            if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) {
+                str = new TextDecoder('utf-16le').decode(bytes);
+            } else if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) {
+                str = new TextDecoder('utf-16be').decode(bytes);
+            } else {
+                str = new TextDecoder('utf-8').decode(bytes);
+                if (str.includes('\0')) {
+                    str = new TextDecoder('utf-16le').decode(bytes);
+                    if (str.includes('\0')) str = new TextDecoder('utf-16be').decode(bytes);
+                }
+            }
+            str = str.replace(/\0/g, '');
+            return new TextEncoder().encode(str);
+        }
+
+        function renderTable(data, columns) {
+            // Clear existing
+            tableHead.innerHTML = '';
+            tableBody.innerHTML = '';
+            // Create header row
+            const headerRow = document.createElement('tr');
+            columns.forEach(col => {
+                const th = document.createElement('th');
+                th.textContent = col;
+                headerRow.appendChild(th);
+            });
+            tableHead.appendChild(headerRow);
+
+            // Show only first 10 rows for performance
+            const rowsToShow = data.slice(0, 10);
+            for (const row of rowsToShow) {
+                const tr = document.createElement('tr');
+                columns.forEach(col => {
+                    const td = document.createElement('td');
+                    let val = row[col];
+                    if (val === null || val === undefined) val = '';
+                    if (typeof val === 'number') val = val.toFixed(2);
+                    td.textContent = val;
+                    tr.appendChild(td);
+                });
+                tableBody.appendChild(tr);
+            }
+        }
+
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            if (!Rready) { alert('R is not ready. Please wait and try again.'); return; }
+
+            try {
+                showProgress(10, 'Reading file…');
+                const utf8Bytes = await decodeFileToCleanUTF8(file);
+                showProgress(30, 'Sending to R…');
+                await webR.FS.writeFile('/home/data.csv', utf8Bytes);
+                showProgress(50, 'Ranking serotypes…');
+
+                // R code: reads CSV, ranks all columns except the first
+                const rankingScript = `
+                    dt <- fread("/home/data.csv", header = TRUE)
+                    if (ncol(dt) < 2) stop("CSV must have at least 2 columns (ID + at least one assay)")
+                    
+                    # Keep original column names for later
+                    original_names <- names(dt)
+                    first_col_name <- original_names[1]
+                    assay_cols <- original_names[-1]
+                    
+                    # Ensure assay columns are numeric
+                    dt[, (assay_cols) := lapply(.SD, as.numeric), .SDcols = assay_cols]
+                    
+                    # Ranking function: for each row, get order of assays by value (lowest first, NA last)
+                    rank_assays <- function(row_vals, assay_names, n_ranks = 5, cutoff = 40) {
+                        # Replace values >= cutoff or NA with Inf so they never get ranked
+                        vals <- row_vals
+                        vals[is.na(vals) | vals >= cutoff] <- Inf
+                        o <- order(vals, na.last = TRUE)
+                        top_idx <- o[seq_len(min(n_ranks, length(o)))]
+                        # Output columns: assay name and Ct value
+                        out_names <- rep("-", n_ranks)
+                        out_vals <- rep(NA_real_, n_ranks)
+                        for (i in seq_along(top_idx)) {
+                            out_names[i] <- assay_names[top_idx[i]]
+                            out_vals[i] <- row_vals[top_idx[i]]
+                        }
+                        list(names = out_names, values = out_vals)
+                    }
+                    
+                    n_ranks <- 5
+                    cutoff <- 40
+                    
+                    # Prepare new column names
+                    new_name_cols <- paste0("rank", 1:n_ranks, "_assay")
+                    new_val_cols  <- paste0("rank", 1:n_ranks, "_Cq")
+                    
+                    # Apply row-wise (fast enough for moderate data, but could use matrix apply)
+                    # Convert assays to matrix for speed
+                    assay_mat <- as.matrix(dt[, ..assay_cols])
+                    n_rows <- nrow(dt)
+                    result_names <- matrix("-", nrow = n_rows, ncol = n_ranks)
+                    result_vals <- matrix(NA_real_, nrow = n_rows, ncol = n_ranks)
+                    
+                    for (i in 1:n_rows) {
+                        res <- rank_assays(assay_mat[i, ], assay_cols, n_ranks, cutoff)
+                        result_names[i, ] <- res$names
+                        result_vals[i, ] <- res$values
+                    }
+                    
+                    # Add as new columns
+                    for (k in 1:n_ranks) {
+                        set(dt, j = new_name_cols[k], value = result_names[, k])
+                        set(dt, j = new_val_cols[k], value = result_vals[, k])
+                    }
+                    
+                    # Prepare output JSON: full data.table plus column names
+                    list(
+                        data = as.data.frame(dt),
+                        columns = c(original_names, new_name_cols, new_val_cols),
+                        first_col = first_col_name,
+                        assay_cols = assay_cols
+                    )
+                `;
+
+                const rawResult = await webR.evalR(rankingScript);
+                const resultJson = await rawResult.toJson();
+                const parsed = JSON.parse(resultJson);
+                const resultData = parsed.data;
+                const allColumns = parsed.columns;
+
+                processedData = resultData;
+
+                showProgress(80, 'Rendering table…');
+                outputArea.style.display = 'block';
+                renderTable(resultData, allColumns);
+
+                showProgress(100, 'Ranking complete!');
+            } catch (err) {
+                console.error(err);
+                showProgress(0, 'Error: ' + err.message);
+                alert('Processing failed: ' + err.message);
+                outputArea.style.display = 'none';
+            } finally {
+                hideProgress();
+            }
+        });
+
+        // Download button: export processed CSV
+        downloadBtn.addEventListener('click', () => {
+            if (!processedData) return;
+            // Convert array of objects to CSV
+            const columns = Object.keys(processedData[0]);
+            const csvRows = [];
+            csvRows.push(columns.join(','));
+            for (const row of processedData) {
+                const values = columns.map(col => {
+                    let val = row[col];
+                    if (val === null || val === undefined) val = '';
+                    if (typeof val === 'string' && (val.includes(',') || val.includes('"'))) {
+                        val = '"' + val.replace(/"/g, '""') + '"';
+                    }
+                    return val;
+                });
+                csvRows.push(values.join(','));
+            }
+            const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.href = url;
+            link.setAttribute('download', 'ranked_serotypes.csv');
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        });
+    </script>
+</body>
+</html>
