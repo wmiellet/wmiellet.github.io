@@ -31,10 +31,15 @@ Figure 2: [Legend text].
 ## Interpretation
 [Text].
 
-### ICC
+### Agreement indices
+#### ICC
+[Text].
+#### Cohen's kappa
+[Text].
+#### Light's kappa
 [Text].
 
-#### Produce an Agreement plot with your own data!
+## Produce an Agreement plot with your own data!
 [Upload a CSV and create a plot directly in your browser](https://wmiellet.github.io/data_upload.html)
 
 ## Recommendations
