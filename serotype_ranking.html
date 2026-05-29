@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Serotype Ranking by Ct Value (WebR) v0.2 </title>
+    <title>Serotype Ranking by Ct Value (WebR)</title>
     <style>
         body { font-family: sans-serif; padding: 20px; }
         #progressContainer { width: 100%; max-width: 500px; margin: 15px 0; display: none; }
@@ -21,10 +21,10 @@
     </style>
 </head>
 <body>
-    <h1>Serotype Ranking by Lowest Ct Value v0.2 </h1>
-    <p>Upload a CSV file. The first column is ignored (e.g., sample ID). All subsequent columns are serotype assays with Ct values.<br>
-    For each row, the assay with the <strong>lowest Ct</strong> gets rank 1, second lowest rank 2, etc.<br>
-    If Ct ≥ 40 or missing, the assay name is replaced by <code>"-"</code>. The ranking uses only numeric values < 40.</p>
+    <h1>Serotype Ranking by Lowest Ct Value</h1>
+    <p>Upload a CSV file. The first column is ignored for ranking (e.g., sample ID / piaB). All subsequent columns are serotype assays with Ct values.<br>
+    For each row, the assay with the <strong>lowest Ct</strong> gets rank 1, second lowest rank 2, etc. (up to rank 5).<br>
+    If Ct ≥ 40 or missing, the assay name is replaced by <code>"-"</code>. The ranking only uses values < 40.</p>
 
     <input type="file" id="csvFile" accept=".csv" />
 
@@ -152,7 +152,7 @@
                 await webR.FS.writeFile('/home/data.csv', utf8Bytes);
                 showProgress(50, 'Ranking serotypes…');
 
-                // R code: ranks all columns except the first, returns JSON string
+                // R code: ranks all columns except the first, reorders output columns, returns JSON
                 const rankingScript = `
                     dt <- fread("/home/data.csv", header = TRUE)
                     if (ncol(dt) < 2) stop("CSV must have at least 2 columns (ID + at least one assay)")
@@ -199,10 +199,17 @@
                         set(dt, j = new_val_cols[k], value = result_vals[, k])
                     }
                     
+                    # Reorder columns: first_col, then Cq columns 1..5, then assay columns 1..5, then original assay cols
+                    cq_cols <- new_val_cols
+                    name_cols <- new_name_cols
+                    other_cols <- assay_cols  # the original assay columns
+                    new_order <- c(first_col_name, cq_cols, name_cols, other_cols)
+                    setcolorder(dt, new_order)
+                    
                     # Convert to JSON string
                     out_list <- list(
                         data = as.data.frame(dt),
-                        columns = c(original_names, new_name_cols, new_val_cols)
+                        columns = new_order
                     )
                     toJSON(out_list, auto_unbox = TRUE, digits = 8)
                 `;
