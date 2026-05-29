@@ -30,7 +30,7 @@
     </style>
 </head>
 <body>
-    <h1>Serotype Ranking & Bland‑Altman (coloured by dominant serotype) v0.13 </h1>
+    <h1>Serotype Ranking & Bland‑Altman (coloured by dominant serotype) v0.14 </h1>
     <p>Upload a CSV file. The <strong>first column</strong> is treated as a reference assay (e.g., piaB) and is <strong>excluded from ranking</strong>. All other columns are serotype assays (Ct values, ≥40 = negative).<br>
     Choose which serotype assays to exclude, then rank. Points are coloured by the dominant (rank1) serotype.<br>
     Select a reference assay (default = first column) and a primary rank for Bland‑Altman statistics. Overlay other ranks as coloured points.</p>
@@ -309,7 +309,7 @@
             }
         }
 
-        // Bland‑Altman: embed rankingResult, colour points by rank1_assay (dominant serotype)
+        // Bland‑Altman: embed rankingResult, colour points by rank1_assay
         async function updateBlandAltman() {
             if (!rankingResult) return;
             const refAssay = refSelect.value;
@@ -328,7 +328,10 @@
 
             const rankingJson = JSON.stringify(rankingResult).replace(/\\/g, '\\\\').replace(/`/g, '\\`');
             const primaryRankCol = `rank${primaryRank}_Cq`;
-            const allRankCols = showRanks.map(r => `rank${r}_Cq`);
+            // Include primary rank in the overlay as well (if selected, but we will add it separately)
+            // We'll collect points for all ranks that are checked.
+            const allRanksToPlot = showRanks; // these are the ranks to overlay
+            const allRankCols = allRanksToPlot.map(r => `rank${r}_Cq`);
             const script = `
                 library(data.table)
                 library(jsonlite)
@@ -337,9 +340,10 @@
                 ref_col <- "${refAssay}"
                 primary_rank_col <- "${primaryRankCol}"
                 all_rank_cols <- c(${allRankCols.map(c => `"${c}"`).join(',')})
-                ranks <- c(${showRanks.join(',')})
+                ranks <- c(${allRanksToPlot.join(',')})
                 if (!"rank1_assay" %in% names(dt)) stop("rank1_assay column missing")
                 
+                # Compute BA statistics for primary rank (for lines)
                 valid_primary <- !is.na(dt[[ref_col]]) & !is.na(dt[[primary_rank_col]]) & dt[[primary_rank_col]] < 40
                 if (sum(valid_primary) < 2) {
                     result <- list(error = "Insufficient pairs for primary rank")
@@ -407,23 +411,27 @@
                         loa_lo_ci_high <- quantile(boot_lo, 0.975)
                     }
                     
-                    # Collect overlay points with their rank1_assay
-                    overlay_points <- data.table()
+                    # Collect overlay points for all selected ranks (including primary if selected)
+                    overlay_list <- list()
                     for (i in seq_along(all_rank_cols)) {
                         rank_col <- all_rank_cols[i]
                         rk <- ranks[i]
                         valid <- !is.na(dt[[ref_col]]) & !is.na(dt[[rank_col]]) & dt[[rank_col]] < 40
                         if (sum(valid) > 0) {
-                            overlay_points <- rbindlist(list(
-                                overlay_points,
-                                data.table(
-                                    x = (dt[[ref_col]][valid] + dt[[rank_col]][valid]) / 2,
-                                    y = dt[[ref_col]][valid] - dt[[rank_col]][valid],
-                                    rank1_assay = dt[["rank1_assay"]][valid],
-                                    rank = rk
-                                )
-                            ))
+                            idx <- which(valid)
+                            overlay_list[[as.character(rk)]] <- data.frame(
+                                x = (dt[[ref_col]][valid] + dt[[rank_col]][valid]) / 2,
+                                y = dt[[ref_col]][valid] - dt[[rank_col]][valid],
+                                rank1_assay = dt[["rank1_assay"]][idx],
+                                stringsAsFactors = FALSE
+                            )
                         }
+                    }
+                    
+                    # Combine all overlay points into one data frame
+                    all_points <- do.call(rbind, overlay_list)
+                    if (is.null(all_points)) {
+                        all_points <- data.frame(x = numeric(0), y = numeric(0), rank1_assay = character(0))
                     }
                     
                     result <- list(
@@ -440,7 +448,7 @@
                             mean_vals = mean_primary,
                             diff_vals = diff_primary
                         ),
-                        overlay = overlay_points
+                        overlay = all_points
                     )
                 }
                 toJSON(result, auto_unbox = TRUE, digits = 8)
@@ -456,9 +464,9 @@
                 const primary = result.primary;
                 const overlay = result.overlay;
                 
-                // Build traces: group points by rank1_assay (dominant serotype)
+                // Build traces: group points by rank1_assay
                 const grouped = new Map(); // assay -> {x:[], y:[]}
-                if (overlay && overlay.x) {
+                if (overlay && overlay.x && overlay.x.length) {
                     for (let i = 0; i < overlay.x.length; i++) {
                         const assay = overlay.rank1_assay[i];
                         if (!grouped.has(assay)) grouped.set(assay, {x:[], y:[]});
@@ -483,7 +491,7 @@
                         y: pts.y,
                         type: 'scatter',
                         mode: 'markers',
-                        marker: { color: colorMap.get(assay), size: 8, opacity: 0.8 },
+                        marker: { color: colorMap.get(assay), size: 9, opacity: 0.8 },
                         name: assay,
                         showlegend: true,
                         legendgroup: assay
