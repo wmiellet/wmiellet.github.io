@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Serotype Ranking + Bland‑Altman + Diagnostics (v1.1)</title>
+    <title>Serotype Ranking + Bland‑Altman + Diagnostics (v1.2)</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -420,12 +420,18 @@
                 const result = JSON.parse(await statsRes.toString());
                 if (result.error) { alert(result.error); return; }
                 const primary = result.primary;
-                const overlay = result.overlay;  // this is an array of row objects
+                const overlay = result.overlay;  // array of point objects
                 diagData = result.diagnostics;
                 currentICC = result.icc;
                 currentKappa = result.kappa;
                 iccDiv.textContent = currentICC;
                 kappaDiv.textContent = currentKappa;
+                
+                // Debug: log overlay points to console
+                console.log("Overlay points received:", overlay.length);
+                const bothTrue = overlay.filter(p => p.both_lt40 === true || p.both_lt40 === "true");
+                const bothFalse = overlay.filter(p => p.both_lt40 === false || p.both_lt40 === "false");
+                console.log("Both <40:", bothTrue.length, "  Other (grey):", bothFalse.length);
                 
                 // Build BA traces
                 const traces = [];
@@ -434,14 +440,10 @@
                 let colorIdx = 0;
                 const getColor = (assay) => { if(!colorMap.has(assay)) colorMap.set(assay, palette[colorIdx++ % palette.length]); return colorMap.get(assay); };
                 
-                // Separate points by both_lt40
-                const bothLT40 = overlay.filter(p => p.both_lt40 === true);
-                const notBoth = overlay.filter(p => p.both_lt40 === false);
-                
                 // Coloured points (both <40)
-                if(bothLT40.length){
+                if(bothTrue.length){
                     const groups = new Map();
-                    for(const pt of bothLT40){
+                    for(const pt of bothTrue){
                         const assay = pt.rank1_assay;
                         if(!groups.has(assay)) groups.set(assay, {x:[], y:[]});
                         groups.get(assay).x.push(pt.x);
@@ -451,14 +453,15 @@
                         traces.push({x:pts.x, y:pts.y, type:'scatter', mode:'markers', marker:{color:getColor(assay), size:9, opacity:0.8}, name:assay, showlegend:true, legendgroup:assay});
                     }
                 }
-                // Grey points (single pos. or double neg.)
-                if(showGreyPoints.checked && notBoth.length){
-                    const greyX = notBoth.map(p=>p.x);
-                    const greyY = notBoth.map(p=>p.y);
-                    traces.push({x:greyX, y:greyY, type:'scatter', mode:'markers', marker:{color:'lightgray', size:7, opacity:0.5}, name:'Single pos. / double neg.', showlegend:true});
+                
+                // Grey points (single pos. / double neg.) – only if checkbox is checked
+                if(showGreyPoints.checked && bothFalse.length){
+                    const greyX = bothFalse.map(p=>p.x);
+                    const greyY = bothFalse.map(p=>p.y);
+                    traces.push({x:greyX, y:greyY, type:'scatter', mode:'markers', marker:{color:'lightgray', size:8, opacity:0.7}, name:'Single pos. / double neg.', showlegend:true});
                 }
                 
-                // BA lines
+                // BA lines (same as before)
                 const xRange = [Math.min(...primary.mean_vals,20), Math.max(...primary.mean_vals,42)];
                 const allY = [...primary.diff_vals, ...overlay.map(p=>p.y)];
                 const yRange = [Math.min(...allY, primary.bias, primary.loa_upper, primary.loa_lower, -20), Math.max(...allY, primary.bias, primary.loa_upper, primary.loa_lower, 20)];
