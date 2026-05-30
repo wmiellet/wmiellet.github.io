@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Serotype Ranking & Bland‑Altman (coloured by dominant serotype) v0.16</title>
+    <title>Serotype Ranking + Bland‑Altman + Diagnostics (v1.0)</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -16,7 +16,7 @@
         .progress-fill { width: 0%; height: 100%; background: #4CAF50; border-radius: 6px;
                          text-align: center; color: white; line-height: 28px; font-weight: bold; }
         #statusMsg { margin: 10px 0; color: #555; font-style: italic; }
-        #baPlot { width: 100%; height: 500px; }
+        .plot-container { margin-top: 20px; }
         .stats-table { margin-top: 15px; border-collapse: collapse; width: 100%; font-size: 13px; }
         .stats-table th, .stats-table td { border: 1px solid #ccc; padding: 6px; text-align: center; }
         .stats-table th { background: #eee; }
@@ -27,13 +27,20 @@
         select, input[type="number"] { padding: 4px; }
         .download-btn { background-color: #2196F3; }
         .download-btn:hover { background-color: #0b7dda; }
+        .diagnostic-plot { width: 100%; height: 350px; margin-bottom: 20px; }
+        .diagnostic-container { display: flex; flex-wrap: wrap; gap: 20px; justify-content: space-between; }
+        .diagnostic-item { flex: 1 1 45%; min-width: 300px; }
+        .correlation-container { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+        .correlation-plot { flex: 1 1 400px; }
+        .agreement-stat { margin-top: 10px; font-size: 14px; color: #666; }
     </style>
 </head>
 <body>
-    <h1>Serotype Ranking & Bland‑Altman (coloured by dominant serotype) v0.16</h1>
-    <p>Upload a CSV file. The <strong>first column</strong> is treated as a reference assay (e.g., piaB) and is <strong>excluded from ranking</strong>. All other columns are serotype assays (Ct values, ≥40 = negative).<br>
-    Choose which serotype assays to exclude, then rank. Points are coloured by the dominant (rank1) serotype.<br>
-    Select a reference assay (default = first column) and a primary rank for Bland‑Altman statistics. Overlay other ranks as coloured points.</p>
+    <h1>Serotype Ranking + Bland‑Altman + Diagnostics (coloured by dominant serotype)</h1>
+    <p>Upload a CSV file. <strong>First column</strong> = reference assay (excluded from ranking). All other columns = serotype assays (Ct, ≥40 = negative).<br>
+    Exclude serotype assays, then rank. Points are coloured by the dominant (rank1) serotype.<br>
+    Select a reference assay, a primary rank for BA statistics, and optionally overlay other ranks.<br>
+    Use checkboxes to show grey points (single pos./double neg.), diagnostic plots, correlation, ICC and kappa.</p>
 
     <input type="file" id="csvFile" accept=".csv" />
     <button id="downloadRankedBtn" class="download-btn" style="display:none;">Download ranked CSV</button>
@@ -48,7 +55,7 @@
             <div class="panel" style="flex:1;">
                 <h3>Exclude serotype assays from ranking</h3>
                 <div id="assayChecklist" class="assay-list"></div>
-                <button id="runRankingBtn">Run Ranking & Update Plot</button>
+                <button id="runRankingBtn">Run Ranking & Update Plots</button>
             </div>
             <div class="panel" style="flex:1;">
                 <h3>Bland‑Altman settings</h3>
@@ -96,13 +103,33 @@
                     <label><input type="checkbox" id="showZero" checked> Show zero line</label>
                     <label><input type="checkbox" id="showZoneLabels"> Show zone labels</label>
                 </div>
-                <div id="statsDiv" style="margin-top:10px; font-size:13px;"></div>
+                <div class="control-group">
+                    <label><input type="checkbox" id="showGreyPoints" checked> Show single pos. & double neg. (grey)</label>
+                    <label><input type="checkbox" id="showCorrelation" checked> Show correlation plot</label>
+                    <button id="toggleDiagBtn" style="width:100%; margin-top:5px;">Show diagnostic plots</button>
+                </div>
+                <div id="statsDisplay" style="margin-top:12px; padding:8px; background:#fff; border:1px solid #eee; border-radius:4px; font-size:13px;"></div>
+                <div id="iccResult" class="agreement-stat"></div>
+                <div id="kappaResult" class="agreement-stat"></div>
             </div>
         </div>
-        <div id="baPlotContainer">
+        <div id="baPlotContainer" class="plot-container">
             <h3>Bland‑Altman Plot (Reference vs. Primary Rank – points coloured by dominant serotype)</h3>
             <div id="baPlot"></div>
             <table id="statsTable" class="stats-table"><thead><tr><th>Statistic</th><th>Value (95% CI)</th></tr></thead><tbody></tbody>能有
+        </div>
+        <div id="correlationContainer" style="display:none; margin-top:20px;">
+            <hr><h2>Correlation Plot</h2>
+            <div class="correlation-container">
+                <div class="correlation-plot"><div id="xyPlot" class="diagnostic-plot"></div><div id="xyStats" style="font-size:13px;"></div></div>
+            </div>
+        </div>
+        <div id="diagnosticsContainer" style="display:none; margin-top:20px;">
+            <hr><h2>Diagnostic Plots</h2>
+            <div class="diagnostic-container">
+                <div class="diagnostic-item"><div class="diagnostic-title">Normality of Differences</div><div id="normPlot" class="diagnostic-plot"></div><div id="normStats" style="font-size:13px;"></div></div>
+                <div class="diagnostic-item"><div class="diagnostic-title">Proportionality (|diff| vs mean)</div><div id="propPlot" class="diagnostic-plot"></div><div id="propStats" style="font-size:13px;"></div></div>
+            </div>
         </div>
     </div>
 
@@ -120,13 +147,7 @@
         const runRankingBtn = document.getElementById('runRankingBtn');
         const refSelect = document.getElementById('refSelect');
         const primaryRankSelect = document.getElementById('primaryRankSelect');
-        const showRankCheck = {
-            1: document.getElementById('showRank1'),
-            2: document.getElementById('showRank2'),
-            3: document.getElementById('showRank3'),
-            4: document.getElementById('showRank4'),
-            5: document.getElementById('showRank5')
-        };
+        const showRankCheck = {1: document.getElementById('showRank1'),2: document.getElementById('showRank2'),3: document.getElementById('showRank3'),4: document.getElementById('showRank4'),5: document.getElementById('showRank5')};
         const methodSelect = document.getElementById('methodSelect');
         const aprioriMarginInput = document.getElementById('aprioriMargin');
         const showBias = document.getElementById('showBias');
@@ -137,503 +158,398 @@
         const showCI = document.getElementById('showCI');
         const showZero = document.getElementById('showZero');
         const showZoneLabels = document.getElementById('showZoneLabels');
+        const showGreyPoints = document.getElementById('showGreyPoints');
+        const showCorrelation = document.getElementById('showCorrelation');
+        const toggleDiagBtn = document.getElementById('toggleDiagBtn');
         const statsTableBody = document.querySelector('#statsTable tbody');
         const baPlotDiv = document.getElementById('baPlot');
+        const iccDiv = document.getElementById('iccResult');
+        const kappaDiv = document.getElementById('kappaResult');
+        const statsDisplay = document.getElementById('statsDisplay');
+        const correlationContainer = document.getElementById('correlationContainer');
+        const diagnosticsContainer = document.getElementById('diagnosticsContainer');
+        const xyPlotDiv = document.getElementById('xyPlot');
+        const xyStatsDiv = document.getElementById('xyStats');
+        const normPlotDiv = document.getElementById('normPlot');
+        const normStatsDiv = document.getElementById('normStats');
+        const propPlotDiv = document.getElementById('propPlot');
+        const propStatsDiv = document.getElementById('propStats');
 
-        let webR;
-        let Rready = false;
-        let originalData = null;
-        let serotypeCols = [];
-        let rankingResult = null;
+        let webR, Rready = false;
+        let originalData = null, serotypeCols = [], rankingResult = null;
+        let diagData = null, currentICC = '', currentKappa = '';
 
-        function showProgress(pct, msg) {
-            progCont.style.display = 'block';
-            progBar.style.width = pct + '%';
-            progBar.textContent = pct + '%';
-            statusMsg.textContent = msg || '';
-        }
-        function hideProgress() {
-            setTimeout(() => { progCont.style.display = 'none'; }, 800);
-        }
+        function showProgress(pct, msg) { progCont.style.display = 'block'; progBar.style.width = pct+'%'; progBar.textContent = pct+'%'; statusMsg.textContent = msg||''; }
+        function hideProgress() { setTimeout(() => progCont.style.display = 'none', 800); }
 
         async function initWebR() {
             webR = new WebR();
             try {
-                showProgress(5, 'Starting R...');
-                await webR.init();
-                showProgress(20, 'Installing data.table and jsonlite...');
-                await webR.evalR('webr::install(c("data.table", "jsonlite"))');
-                showProgress(50, 'Loading libraries...');
-                await webR.evalR('library(data.table); library(jsonlite)');
-                Rready = true;
-                showProgress(100, 'Ready. Upload a CSV file.');
-            } catch (e) {
-                showProgress(0, 'R init failed: ' + e.message);
-                console.error(e);
-                Rready = false;
-            } finally {
-                hideProgress();
-            }
+                showProgress(5,'Starting R...'); await webR.init();
+                showProgress(20,'Installing data.table and jsonlite...'); await webR.evalR('webr::install(c("data.table","jsonlite"))');
+                showProgress(50,'Loading libraries...'); await webR.evalR('library(data.table); library(jsonlite)');
+                Rready = true; showProgress(100,'Ready. Upload a CSV file.');
+            } catch(e) { showProgress(0,'R init failed: '+e.message); console.error(e); Rready=false; } finally { hideProgress(); }
         }
         initWebR();
 
-        async function decodeFileToCleanUTF8(file) {
+        async function decodeFileToCleanUTF8(file) { /* same as before */ 
             const buffer = await file.arrayBuffer();
             const bytes = new Uint8Array(buffer);
-            if (bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4B)
-                throw new Error('File appears to be an Excel (.xlsx) or ZIP. Please use CSV UTF-8.');
+            if (bytes.length>=2 && bytes[0]===0x50 && bytes[1]===0x4B) throw new Error('Excel or ZIP? Use CSV UTF-8.');
             let str;
-            if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE)
-                str = new TextDecoder('utf-16le').decode(bytes);
-            else if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF)
-                str = new TextDecoder('utf-16be').decode(bytes);
-            else {
-                str = new TextDecoder('utf-8').decode(bytes);
-                if (str.includes('\0')) {
-                    str = new TextDecoder('utf-16le').decode(bytes);
-                    if (str.includes('\0')) str = new TextDecoder('utf-16be').decode(bytes);
-                }
-            }
-            str = str.replace(/\0/g, '');
+            if (bytes.length>=2 && bytes[0]===0xFF && bytes[1]===0xFE) str = new TextDecoder('utf-16le').decode(bytes);
+            else if (bytes.length>=2 && bytes[0]===0xFE && bytes[1]===0xFF) str = new TextDecoder('utf-16be').decode(bytes);
+            else { str = new TextDecoder('utf-8').decode(bytes); if (str.includes('\0')) { str = new TextDecoder('utf-16le').decode(bytes); if (str.includes('\0')) str = new TextDecoder('utf-16be').decode(bytes); } }
+            str = str.replace(/\0/g,'');
             return new TextEncoder().encode(str);
         }
 
-        // Load CSV, store original data, populate serotype checklist, set default reference
         fileInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file || !Rready) return;
             try {
-                showProgress(10, 'Reading file...');
+                showProgress(10,'Reading file...');
                 const utf8Bytes = await decodeFileToCleanUTF8(file);
                 await webR.FS.writeFile('/home/data.csv', utf8Bytes);
-                showProgress(30, 'Loading data...');
-                const res = await webR.evalR(`
-                    library(jsonlite)
-                    dt <- fread("/home/data.csv", header = TRUE)
-                    toJSON(list(
-                        names = names(dt),
-                        data = as.data.frame(dt)
-                    ), auto_unbox = TRUE, digits = 8)
-                `);
-                const jsonStr = await res.toString();
-                const parsed = JSON.parse(jsonStr);
+                showProgress(30,'Loading data...');
+                const res = await webR.evalR(`library(jsonlite); dt <- fread("/home/data.csv", header = TRUE); toJSON(list(names = names(dt), data = as.data.frame(dt)), auto_unbox = TRUE, digits = 8)`);
+                const parsed = JSON.parse(await res.toString());
                 originalData = parsed.data;
                 const allCols = parsed.names;
-                if (allCols.length < 2) throw new Error('CSV must have at least 2 columns.');
+                if (allCols.length < 2) throw new Error('Need at least 2 columns.');
                 const referenceCol = allCols[0];
                 serotypeCols = allCols.slice(1);
-                
                 assayChecklistDiv.innerHTML = '';
-                serotypeCols.forEach(assay => {
-                    const label = document.createElement('label');
-                    label.innerHTML = `<input type="checkbox" class="excludeCheck" value="${assay}"> ${assay}`;
-                    assayChecklistDiv.appendChild(label);
-                });
-                
+                serotypeCols.forEach(assay => { const label = document.createElement('label'); label.innerHTML = `<input type="checkbox" class="excludeCheck" value="${assay}"> ${assay}`; assayChecklistDiv.appendChild(label); });
                 refSelect.innerHTML = '';
-                allCols.forEach(col => {
-                    const opt = document.createElement('option');
-                    opt.value = col;
-                    opt.textContent = col;
-                    refSelect.appendChild(opt);
-                });
+                allCols.forEach(col => { const opt = document.createElement('option'); opt.value = col; opt.textContent = col; refSelect.appendChild(opt); });
                 refSelect.value = referenceCol;
-                
                 controlPanel.style.display = 'block';
-                showProgress(100, 'CSV loaded. Select serotype assays to exclude, then click "Run Ranking".');
-            } catch (err) {
-                console.error(err);
-                alert('Error loading CSV: ' + err.message);
-            } finally {
-                hideProgress();
-            }
+                showProgress(100,'CSV loaded. Select exclusions, then click "Run Ranking".');
+            } catch(err) { console.error(err); alert('Error loading CSV: '+err.message); } finally { hideProgress(); }
         });
 
-        // Ranking function – only ranks serotypeCols (after exclusions)
         async function runRanking() {
             if (!originalData) return;
             const excluded = Array.from(document.querySelectorAll('.excludeCheck:checked')).map(cb => cb.value);
-            const excludedR = excluded.length ? `c(${excluded.map(s => `"${s.replace(/"/g, '\\"')}"`).join(', ')})` : 'c()';
-            const dataJson = JSON.stringify(originalData).replace(/\\/g, '\\\\').replace(/`/g, '\\`');
-            showProgress(40, 'Ranking serotypes (Ct<40 only)...');
+            const excludedR = excluded.length ? `c(${excluded.map(s => `"${s.replace(/"/g,'\\"')}"`).join(',')})` : 'c()';
+            const dataJson = JSON.stringify(originalData).replace(/\\/g,'\\\\').replace(/`/g,'\\`');
+            showProgress(40,'Ranking serotypes (Ct<40 only)...');
             try {
                 const script = `
-                    library(data.table)
-                    library(jsonlite)
-                    data_json <- '${dataJson}'
-                    dt <- as.data.table(fromJSON(data_json))
+                    library(data.table); library(jsonlite)
+                    dt <- as.data.table(fromJSON('${dataJson}'))
                     all_serotype_cols <- names(dt)[-1]
                     excluded <- ${excludedR}
                     assay_cols <- setdiff(all_serotype_cols, excluded)
                     dt[, (assay_cols) := lapply(.SD, as.numeric), .SDcols = assay_cols]
-                    n_ranks <- 5
-                    cutoff <- 40
-                    cq_cols <- paste0("rank", 1:n_ranks, "_Cq")
-                    name_cols <- paste0("rank", 1:n_ranks, "_assay")
-                    result_cq <- matrix(NA_real_, nrow = nrow(dt), ncol = n_ranks)
-                    result_name <- matrix("-", nrow = nrow(dt), ncol = n_ranks)
+                    n_ranks <- 5; cutoff <- 40
+                    cq_cols <- paste0("rank",1:n_ranks,"_Cq")
+                    name_cols <- paste0("rank",1:n_ranks,"_assay")
+                    result_cq <- matrix(NA_real_, nrow=nrow(dt), ncol=n_ranks)
+                    result_name <- matrix("-", nrow=nrow(dt), ncol=n_ranks)
                     for (i in 1:nrow(dt)) {
-                        vals <- unlist(dt[i, ..assay_cols])
-                        names <- assay_cols
+                        vals <- unlist(dt[i,..assay_cols]); names <- assay_cols
                         valid <- !is.na(vals) & vals < cutoff
                         if (any(valid)) {
-                            valid_vals <- vals[valid]
-                            valid_names <- names[valid]
-                            ord <- order(valid_vals)
-                            top_vals <- valid_vals[ord]
-                            top_names <- valid_names[ord]
+                            valid_vals <- vals[valid]; valid_names <- names[valid]
+                            ord <- order(valid_vals); top_vals <- valid_vals[ord]; top_names <- valid_names[ord]
                             k <- min(n_ranks, length(top_vals))
-                            result_cq[i, 1:k] <- top_vals[1:k]
-                            result_name[i, 1:k] <- top_names[1:k]
+                            result_cq[i,1:k] <- top_vals[1:k]; result_name[i,1:k] <- top_names[1:k]
                         }
                     }
-                    for (k in 1:n_ranks) {
-                        set(dt, j = cq_cols[k], value = result_cq[, k])
-                        set(dt, j = name_cols[k], value = result_name[, k])
-                    }
+                    for (k in 1:n_ranks) { set(dt, j=cq_cols[k], value=result_cq[,k]); set(dt, j=name_cols[k], value=result_name[,k]); }
                     keep_cols <- c(names(dt)[1], assay_cols, cq_cols, name_cols)
                     out_dt <- dt[, ..keep_cols]
-                    toJSON(as.data.frame(out_dt), auto_unbox = TRUE, digits = 8)
+                    toJSON(as.data.frame(out_dt), auto_unbox=TRUE, digits=8)
                 `;
                 const result = await webR.evalR(script);
-                const jsonStr = await result.toString();
-                rankingResult = JSON.parse(jsonStr);
-                showProgress(100, 'Ranking completed.');
+                rankingResult = JSON.parse(await result.toString());
+                showProgress(100,'Ranking completed.');
                 downloadBtn.style.display = 'inline-block';
-                updateBlandAltman();
-            } catch (err) {
-                console.error(err);
-                alert('Ranking failed: ' + err.message);
-            } finally {
-                hideProgress();
-            }
+                updateAllPlots();
+            } catch(err) { console.error(err); alert('Ranking failed: '+err.message); } finally { hideProgress(); }
         }
 
-        // Bland‑Altman: embed rankingResult, colour points by rank1_assay, with improved CI handling
-        async function updateBlandAltman() {
+        async function updateAllPlots() {
             if (!rankingResult) return;
             const refAssay = refSelect.value;
             const primaryRank = parseInt(primaryRankSelect.value);
             const showRanks = [];
-            for (let i = 1; i <= 5; i++) {
-                if (showRankCheck[i] && showRankCheck[i].checked) showRanks.push(i);
-            }
-            if (showRanks.length === 0) {
-                alert('Select at least one rank to display as points.');
-                return;
-            }
+            for (let i=1;i<=5;i++) if (showRankCheck[i] && showRankCheck[i].checked) showRanks.push(i);
+            if (showRanks.length===0) { alert('Select at least one rank.'); return; }
             const method = methodSelect.value;
             const margin = parseFloat(aprioriMarginInput.value) || 0;
             const showCIs = showCI.checked;
 
-            const rankingJson = JSON.stringify(rankingResult).replace(/\\/g, '\\\\').replace(/`/g, '\\`');
+            const rankingJson = JSON.stringify(rankingResult).replace(/\\/g,'\\\\').replace(/`/g,'\\`');
             const primaryRankCol = `rank${primaryRank}_Cq`;
-            const allRankCols = showRanks.map(r => `rank${r}_Cq`);
+            const allRankCols = showRanks.map(r=>`rank${r}_Cq`);
             const script = `
-                library(data.table)
-                library(jsonlite)
-                ranking_json <- '${rankingJson}'
-                dt <- as.data.table(fromJSON(ranking_json))
+                library(data.table); library(jsonlite)
+                dt <- as.data.table(fromJSON('${rankingJson}'))
                 ref_col <- "${refAssay}"
                 primary_rank_col <- "${primaryRankCol}"
-                all_rank_cols <- c(${allRankCols.map(c => `"${c}"`).join(',')})
+                all_rank_cols <- c(${allRankCols.map(c=>`"${c}"`).join(',')})
                 ranks <- c(${showRanks.join(',')})
-                if (!"rank1_assay" %in% names(dt)) stop("rank1_assay column missing")
+                if(!"rank1_assay"%in%names(dt)) stop("rank1_assay missing")
                 
-                # Compute BA statistics for primary rank
+                # Primary rank valid pairs (both <40)
                 valid_primary <- !is.na(dt[[ref_col]]) & !is.na(dt[[primary_rank_col]]) & dt[[primary_rank_col]] < 40
-                if (sum(valid_primary) < 2) {
-                    result <- list(error = "Insufficient pairs for primary rank")
-                } else {
-                    x_primary <- dt[[ref_col]][valid_primary]
-                    y_primary <- dt[[primary_rank_col]][valid_primary]
-                    diff_primary <- x_primary - y_primary
-                    mean_primary <- (x_primary + y_primary) / 2
-                    n <- length(diff_primary)
+                if(sum(valid_primary)<2) { result <- list(error="Insufficient pairs for primary rank") } else {
+                    x_prim <- dt[[ref_col]][valid_primary]
+                    y_prim <- dt[[primary_rank_col]][valid_primary]
+                    diff_prim <- x_prim - y_prim
+                    mean_prim <- (x_prim + y_prim)/2
+                    n <- length(diff_prim)
                     
-                    if ("${method}" == "parametric") {
-                        bias <- mean(diff_primary)
-                        sd_diff <- sd(diff_primary)
-                        loa_up <- bias + 1.96 * sd_diff
-                        loa_lo <- bias - 1.96 * sd_diff
-                        se_bias <- sd_diff / sqrt(n)
-                        t_crit <- qt(0.975, n-1)
-                        bias_ci_low <- bias - t_crit * se_bias
-                        bias_ci_high <- bias + t_crit * se_bias
-                        se_loa <- sqrt(3 * sd_diff^2 / n)
-                        loa_up_ci_low <- loa_up - t_crit * se_loa
-                        loa_up_ci_high <- loa_up + t_crit * se_loa
-                        loa_lo_ci_low <- loa_lo - t_crit * se_loa
-                        loa_lo_ci_high <- loa_lo + t_crit * se_loa
-                    } else if ("${method}" == "nonparametric") {
-                        bias <- median(diff_primary)
-                        loa_up <- quantile(diff_primary, 0.975)
-                        loa_lo <- quantile(diff_primary, 0.025)
-                        set.seed(42)
-                        B <- 300
-                        boot_bias <- boot_up <- boot_lo <- numeric(B)
-                        for (b in 1:B) {
-                            s <- sample(diff_primary, replace = TRUE)
-                            boot_bias[b] <- median(s)
-                            boot_up[b] <- quantile(s, 0.975)
-                            boot_lo[b] <- quantile(s, 0.025)
-                        }
-                        bias_ci_low <- quantile(boot_bias, 0.025)
-                        bias_ci_high <- quantile(boot_bias, 0.975)
-                        loa_up_ci_low <- quantile(boot_up, 0.025)
-                        loa_up_ci_high <- quantile(boot_up, 0.975)
-                        loa_lo_ci_low <- quantile(boot_lo, 0.025)
-                        loa_lo_ci_high <- quantile(boot_lo, 0.975)
+                    # BA stats per method
+                    if("${method}"=="parametric"){
+                        bias <- mean(diff_prim); sd_diff <- sd(diff_prim)
+                        loa_up <- bias+1.96*sd_diff; loa_lo <- bias-1.96*sd_diff
+                        se_bias <- sd_diff/sqrt(n); t_crit <- qt(0.975,n-1)
+                        bias_ci_low <- bias - t_crit*se_bias; bias_ci_high <- bias + t_crit*se_bias
+                        se_loa <- sqrt(3*sd_diff^2/n)
+                        loa_up_ci_low <- loa_up - t_crit*se_loa; loa_up_ci_high <- loa_up + t_crit*se_loa
+                        loa_lo_ci_low <- loa_lo - t_crit*se_loa; loa_lo_ci_high <- loa_lo + t_crit*se_loa
+                    } else if("${method}"=="nonparametric"){
+                        bias <- median(diff_prim); loa_up <- quantile(diff_prim,0.975); loa_lo <- quantile(diff_prim,0.025)
+                        set.seed(42); B<-300
+                        boot_bias<-boot_up<-boot_lo<-numeric(B)
+                        for(b in 1:B){ s<-sample(diff_prim,replace=T); boot_bias[b]<-median(s); boot_up[b]<-quantile(s,0.975); boot_lo[b]<-quantile(s,0.025) }
+                        bias_ci_low<-quantile(boot_bias,0.025); bias_ci_high<-quantile(boot_bias,0.975)
+                        loa_up_ci_low<-quantile(boot_up,0.025); loa_up_ci_high<-quantile(boot_up,0.975)
+                        loa_lo_ci_low<-quantile(boot_lo,0.025); loa_lo_ci_high<-quantile(boot_lo,0.975)
                     } else {
-                        bias <- median(diff_primary)
-                        mad_val <- median(abs(diff_primary - bias))
-                        loa_up <- bias + 1.96 * mad_val
-                        loa_lo <- bias - 1.96 * mad_val
-                        set.seed(42)
-                        B <- 300
-                        boot_bias <- boot_up <- boot_lo <- numeric(B)
-                        for (b in 1:B) {
-                            s <- sample(diff_primary, replace = TRUE)
-                            med <- median(s)
-                            mad_i <- median(abs(s - med))
-                            boot_bias[b] <- med
-                            boot_up[b] <- med + 1.96 * mad_i
-                            boot_lo[b] <- med - 1.96 * mad_i
-                        }
-                        bias_ci_low <- quantile(boot_bias, 0.025)
-                        bias_ci_high <- quantile(boot_bias, 0.975)
-                        loa_up_ci_low <- quantile(boot_up, 0.025)
-                        loa_up_ci_high <- quantile(boot_up, 0.975)
-                        loa_lo_ci_low <- quantile(boot_lo, 0.025)
-                        loa_lo_ci_high <- quantile(boot_lo, 0.975)
+                        bias <- median(diff_prim); mad_val <- median(abs(diff_prim-bias))
+                        loa_up <- bias+1.96*mad_val; loa_lo <- bias-1.96*mad_val
+                        set.seed(42); B<-300
+                        boot_bias<-boot_up<-boot_lo<-numeric(B)
+                        for(b in 1:B){ s<-sample(diff_prim,replace=T); med<-median(s); mad_i<-median(abs(s-med)); boot_bias[b]<-med; boot_up[b]<-med+1.96*mad_i; boot_lo[b]<-med-1.96*mad_i }
+                        bias_ci_low<-quantile(boot_bias,0.025); bias_ci_high<-quantile(boot_bias,0.975)
+                        loa_up_ci_low<-quantile(boot_up,0.025); loa_up_ci_high<-quantile(boot_up,0.975)
+                        loa_lo_ci_low<-quantile(boot_lo,0.025); loa_lo_ci_high<-quantile(boot_lo,0.975)
                     }
                     
-                    # Collect overlay points as three vectors (x, y, rank1_assay)
-                    all_x <- numeric(0)
-                    all_y <- numeric(0)
-                    all_assay <- character(0)
+                    # Collect overlay points (all selected ranks) with conditions for grey points
+                    all_col <- list()
                     for (i in seq_along(all_rank_cols)) {
-                        rank_col <- all_rank_cols[i]
-                        valid <- !is.na(dt[[ref_col]]) & !is.na(dt[[rank_col]]) & dt[[rank_col]] < 40
-                        if (sum(valid) > 0) {
-                            all_x <- c(all_x, (dt[[ref_col]][valid] + dt[[rank_col]][valid]) / 2)
-                            all_y <- c(all_y, dt[[ref_col]][valid] - dt[[rank_col]][valid])
-                            all_assay <- c(all_assay, dt[["rank1_assay"]][valid])
+                        rank_col <- all_rank_cols[i]; rk <- ranks[i]
+                        valid_all <- !is.na(dt[[ref_col]]) & !is.na(dt[[rank_col]])
+                        if(sum(valid_all)>0){
+                            all_col[[as.character(rk)]] <- data.table(
+                                x = (dt[[ref_col]][valid_all] + dt[[rank_col]][valid_all])/2,
+                                y = dt[[ref_col]][valid_all] - dt[[rank_col]][valid_all],
+                                both_lt40 = dt[[ref_col]][valid_all] < 40 & dt[[rank_col]][valid_all] < 40,
+                                rank1_assay = dt[["rank1_assay"]][valid_all]
+                            )
                         }
                     }
+                    all_points <- rbindlist(all_col, idcol="rank")
+                    
+                    # Diagnostic data for primary rank
+                    prop_model <- lm(abs(diff_prim) ~ mean_prim)
+                    prop_slope <- coef(prop_model)[2]; prop_intercept <- coef(prop_model)[1]; prop_pval <- summary(prop_model)$coefficients[2,4]
+                    shapiro_test <- shapiro.test(diff_prim)
+                    
+                    # ICC for primary rank vs reference (both <40)
+                    icc_result <- tryCatch({
+                        dt_icc <- data.table(ref = x_prim, rank = y_prim)
+                        if(nrow(dt_icc)>=3 && sd(dt_icc$ref)>0 && sd(dt_icc$rank)>0){
+                            dt_long <- melt(dt_icc, measure.vars=c("ref","rank"), variable.name="method", value.name="value")
+                            dt_long[, subject := rep(1:nrow(dt_icc),2)]
+                            aov_m <- aov(value ~ factor(method) + factor(subject), data=dt_long)
+                            atab <- summary(aov_m)[[1]]
+                            MS_s <- atab["factor(subject)", "Mean Sq"]
+                            MS_e <- atab["Residuals", "Mean Sq"]
+                            if(MS_s > MS_e){
+                                ICC <- (MS_s - MS_e)/(MS_s + MS_e)
+                                df_s <- nrow(dt_icc)-1; df_e <- nrow(dt_icc)-1
+                                F_obs <- MS_s/MS_e
+                                F_lo <- F_obs / qf(0.975, df_s, df_e)
+                                F_hi <- F_obs * qf(0.975, df_e, df_s)
+                                LCI <- (F_lo-1)/(F_lo+1); UCI <- (F_hi-1)/(F_hi+1)
+                                paste0("ICC = ", round(ICC,3), " (95% CI: ", round(LCI,3), " – ", round(UCI,3), ")")
+                            } else "ICC = 0.000 (no positive correlation)"
+                        } else "ICC cannot be computed (insufficient variability)"
+                    }, error=function(e) paste("ICC error:", e$message))
+                    
+                    # Cohen's kappa (binary <40) for primary rank vs reference
+                    kappa_result <- tryCatch({
+                        dt_kap <- data.table(ref = dt[[ref_col]], rank = dt[[primary_rank_col]])
+                        dt_kap <- na.omit(dt_kap)
+                        dt_kap[, ref_pos := ifelse(ref < 40, 1, 0)]
+                        dt_kap[, rank_pos := ifelse(rank < 40, 1, 0)]
+                        tab <- table(factor(dt_kap$ref_pos, levels=0:1), factor(dt_kap$rank_pos, levels=0:1))
+                        if(tab[1,1] >= 2){
+                            N <- sum(tab); po <- sum(diag(tab))/N
+                            row_m <- rowSums(tab)/N; col_m <- colSums(tab)/N
+                            pe <- sum(row_m * col_m)
+                            k <- (po-pe)/(1-pe)
+                            se <- sqrt((po*(1-po))/(N*(1-pe)^2))
+                            ci_lo <- max(k-1.96*se, -1); ci_hi <- min(k+1.96*se, 1)
+                            paste0("Cohen's kappa = ", round(k,3), " (95% CI: ", round(ci_lo,3), " – ", round(ci_hi,3), ")")
+                        } else "Insufficient double negatives"
+                    }, error=function(e) paste("Kappa error:", e$message))
                     
                     result <- list(
-                        primary = list(
-                            bias = bias,
-                            loa_upper = loa_up,
-                            loa_lower = loa_lo,
-                            bias_ci_low = bias_ci_low,
-                            bias_ci_high = bias_ci_high,
-                            loa_up_ci_low = loa_up_ci_low,
-                            loa_up_ci_high = loa_up_ci_high,
-                            loa_lo_ci_low = loa_lo_ci_low,
-                            loa_lo_ci_high = loa_lo_ci_high,
-                            mean_vals = mean_primary,
-                            diff_vals = diff_primary
+                        primary = list(bias=bias, loa_upper=loa_up, loa_lower=loa_lo,
+                                       bias_ci_low=bias_ci_low, bias_ci_high=bias_ci_high,
+                                       loa_up_ci_low=loa_up_ci_low, loa_up_ci_high=loa_up_ci_high,
+                                       loa_lo_ci_low=loa_lo_ci_low, loa_lo_ci_high=loa_lo_ci_high,
+                                       mean_vals=mean_prim, diff_vals=diff_prim),
+                        overlay = all_points,
+                        diagnostics = list(
+                            norm_diffs = diff_prim, norm_shapiro_p = shapiro_test$p.value,
+                            norm_mean = mean(diff_prim), norm_sd = sd(diff_prim),
+                            prop_means = mean_prim, prop_absdiffs = abs(diff_prim),
+                            prop_intercept = prop_intercept, prop_slope = prop_slope, prop_pval = prop_pval,
+                            xy_x = x_prim, xy_y = y_prim,
+                            xy_pearson_r = cor(x_prim, y_prim, method="pearson"),
+                            xy_pearson_p = cor.test(x_prim, y_prim, method="pearson")$p.value,
+                            xy_spearman_rho = cor(x_prim, y_prim, method="spearman"),
+                            xy_spearman_p = cor.test(x_prim, y_prim, method="spearman")$p.value
                         ),
-                        overlay = list(
-                            x = all_x,
-                            y = all_y,
-                            rank1_assay = all_assay
-                        )
+                        icc = icc_result,
+                        kappa = kappa_result
                     )
                 }
-                toJSON(result, auto_unbox = TRUE, digits = 8)
+                toJSON(result, auto_unbox=TRUE, digits=8)
             `;
             try {
                 const statsRes = await webR.evalR(script);
-                const statsJson = await statsRes.toString();
-                const result = JSON.parse(statsJson);
-                if (result.error) {
-                    alert(result.error);
-                    return;
-                }
+                const result = JSON.parse(await statsRes.toString());
+                if (result.error) { alert(result.error); return; }
                 const primary = result.primary;
                 const overlay = result.overlay;
+                diagData = result.diagnostics;
+                currentICC = result.icc;
+                currentKappa = result.kappa;
+                iccDiv.textContent = currentICC;
+                kappaDiv.textContent = currentKappa;
                 
-                // Group points by rank1_assay
-                const grouped = new Map();
-                if (overlay.x && overlay.x.length) {
-                    for (let i = 0; i < overlay.x.length; i++) {
-                        const assay = overlay.rank1_assay[i];
-                        if (!grouped.has(assay)) grouped.set(assay, {x:[], y:[]});
-                        grouped.get(assay).x.push(overlay.x[i]);
-                        grouped.get(assay).y.push(overlay.y[i]);
-                    }
-                }
-                
-                // Colourblind-friendly palette
-                const palette = [
-                    '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b',
-                    '#e377c2', '#7f7f7f', '#bcbd22', '#17becf', '#f4a261', '#e9c46a'
-                ];
-                let colorIdx = 0;
-                const colorMap = new Map();
+                // Build BA traces
                 const traces = [];
-                for (const [assay, pts] of grouped.entries()) {
-                    if (!colorMap.has(assay)) colorMap.set(assay, palette[colorIdx % palette.length]);
-                    colorIdx++;
-                    traces.push({
-                        x: pts.x,
-                        y: pts.y,
-                        type: 'scatter',
-                        mode: 'markers',
-                        marker: { color: colorMap.get(assay), size: 9, opacity: 0.8 },
-                        name: assay,
-                        showlegend: true,
-                        legendgroup: assay
-                    });
-                }
+                const palette = ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf','#f4a261','#e9c46a'];
+                const colorMap = new Map();
+                let colorIdx = 0;
+                const getColor = (assay) => { if(!colorMap.has(assay)) colorMap.set(assay, palette[colorIdx++ % palette.length]); return colorMap.get(assay); };
                 
-                // Determine y-axis range for dynamic zone labels
-                const allY = overlay.y || [];
-                const yMinData = Math.min(...allY, primary.bias, primary.loa_upper, primary.loa_lower);
-                const yMaxData = Math.max(...allY, primary.bias, primary.loa_upper, primary.loa_lower);
-                const yRange = [Math.min(yMinData, -20), Math.max(yMaxData, 20)];
-                
-                const xRange = [Math.min(...primary.mean_vals, 20), Math.max(...primary.mean_vals, 42)];
-                const lineColorBias = 'blue';
-                const lineColorLoA = 'red';
-                const lineColorApr = 'green';
-                
-                // Bias line
-                if (showBias.checked) {
-                    traces.push({
-                        x: xRange, y: [primary.bias, primary.bias],
-                        mode: 'lines', line: { color: lineColorBias, width: 2, dash: 'solid' },
-                        name: `Bias = ${primary.bias.toFixed(3)}`, showlegend: true
-                    });
-                    if (showCIs && primary.bias_ci_low !== undefined) {
-                        traces.push({ x: xRange, y: [primary.bias_ci_low, primary.bias_ci_low], mode: 'lines', line: { color: lineColorBias, width: 1, dash: 'dot' }, showlegend: false });
-                        traces.push({ x: xRange, y: [primary.bias_ci_high, primary.bias_ci_high], mode: 'lines', line: { color: lineColorBias, width: 1, dash: 'dot' }, showlegend: false });
+                // Points: split by both_lt40
+                const bothLT40 = overlay[both_lt40 == true];
+                const notBoth = overlay[both_lt40 == false];
+                if(bothLT40.length){
+                    const groups = new Map();
+                    for(let i=0;i<bothLT40.x.length;i++){
+                        const assay = bothLT40.rank1_assay[i];
+                        if(!groups.has(assay)) groups.set(assay, {x:[],y:[]});
+                        groups.get(assay).x.push(bothLT40.x[i]); groups.get(assay).y.push(bothLT40.y[i]);
+                    }
+                    for(const [assay, pts] of groups){
+                        traces.push({x:pts.x, y:pts.y, type:'scatter', mode:'markers', marker:{color:getColor(assay), size:9, opacity:0.8}, name:assay, showlegend:true, legendgroup:assay});
                     }
                 }
-                // Upper LoA
-                if (showUpperLoA.checked) {
-                    traces.push({
-                        x: xRange, y: [primary.loa_upper, primary.loa_upper],
-                        mode: 'lines', line: { color: lineColorLoA, width: 2, dash: 'dash' },
-                        name: `Upper LoA = ${primary.loa_upper.toFixed(3)}`, showlegend: true
-                    });
-                    if (showCIs && primary.loa_up_ci_low !== undefined) {
-                        traces.push({ x: xRange, y: [primary.loa_up_ci_low, primary.loa_up_ci_low], mode: 'lines', line: { color: lineColorLoA, width: 1, dash: 'dot' }, showlegend: false });
-                        traces.push({ x: xRange, y: [primary.loa_up_ci_high, primary.loa_up_ci_high], mode: 'lines', line: { color: lineColorLoA, width: 1, dash: 'dot' }, showlegend: false });
+                if(showGreyPoints.checked && notBoth.length){
+                    traces.push({x:notBoth.x, y:notBoth.y, type:'scatter', mode:'markers', marker:{color:'lightgray', size:7, opacity:0.5}, name:'Single pos. / double neg.', showlegend:true});
+                }
+                
+                // BA lines (same as before)
+                const xRange = [Math.min(...primary.mean_vals,20), Math.max(...primary.mean_vals,42)];
+                const allY = [...primary.diff_vals, ...(overlay.y||[])];
+                const yRange = [Math.min(...allY, primary.bias, primary.loa_upper, primary.loa_lower, -20), Math.max(...allY, primary.bias, primary.loa_upper, primary.loa_lower, 20)];
+                if(showBias.checked){
+                    traces.push({x:xRange, y:[primary.bias,primary.bias], mode:'lines', line:{color:'blue',width:2,dash:'solid'}, name:`Bias = ${primary.bias.toFixed(3)}`, showlegend:true});
+                    if(showCIs && primary.bias_ci_low){
+                        traces.push({x:xRange, y:[primary.bias_ci_low,primary.bias_ci_low], mode:'lines', line:{color:'blue',width:1,dash:'dot'}, showlegend:false});
+                        traces.push({x:xRange, y:[primary.bias_ci_high,primary.bias_ci_high], mode:'lines', line:{color:'blue',width:1,dash:'dot'}, showlegend:false});
                     }
                 }
-                // Lower LoA
-                if (showLowerLoA.checked) {
-                    traces.push({
-                        x: xRange, y: [primary.loa_lower, primary.loa_lower],
-                        mode: 'lines', line: { color: lineColorLoA, width: 2, dash: 'dash' },
-                        name: `Lower LoA = ${primary.loa_lower.toFixed(3)}`, showlegend: true
-                    });
-                    if (showCIs && primary.loa_lo_ci_low !== undefined) {
-                        traces.push({ x: xRange, y: [primary.loa_lo_ci_low, primary.loa_lo_ci_low], mode: 'lines', line: { color: lineColorLoA, width: 1, dash: 'dot' }, showlegend: false });
-                        traces.push({ x: xRange, y: [primary.loa_lo_ci_high, primary.loa_lo_ci_high], mode: 'lines', line: { color: lineColorLoA, width: 1, dash: 'dot' }, showlegend: false });
+                if(showUpperLoA.checked){
+                    traces.push({x:xRange, y:[primary.loa_upper,primary.loa_upper], mode:'lines', line:{color:'red',width:2,dash:'dash'}, name:`Upper LoA = ${primary.loa_upper.toFixed(3)}`, showlegend:true});
+                    if(showCIs && primary.loa_up_ci_low){
+                        traces.push({x:xRange, y:[primary.loa_up_ci_low,primary.loa_up_ci_low], mode:'lines', line:{color:'red',width:1,dash:'dot'}, showlegend:false});
+                        traces.push({x:xRange, y:[primary.loa_up_ci_high,primary.loa_up_ci_high], mode:'lines', line:{color:'red',width:1,dash:'dot'}, showlegend:false});
                     }
                 }
-                // A priori limits
-                if (showUpperApriori.checked) {
-                    traces.push({ x: xRange, y: [primary.bias + margin, primary.bias + margin], mode: 'lines', line: { color: lineColorApr, width: 1.5, dash: 'solid' }, name: `Upper a priori = ${(primary.bias + margin).toFixed(3)}`, showlegend: true });
+                if(showLowerLoA.checked){
+                    traces.push({x:xRange, y:[primary.loa_lower,primary.loa_lower], mode:'lines', line:{color:'red',width:2,dash:'dash'}, name:`Lower LoA = ${primary.loa_lower.toFixed(3)}`, showlegend:true});
+                    if(showCIs && primary.loa_lo_ci_low){
+                        traces.push({x:xRange, y:[primary.loa_lo_ci_low,primary.loa_lo_ci_low], mode:'lines', line:{color:'red',width:1,dash:'dot'}, showlegend:false});
+                        traces.push({x:xRange, y:[primary.loa_lo_ci_high,primary.loa_lo_ci_high], mode:'lines', line:{color:'red',width:1,dash:'dot'}, showlegend:false});
+                    }
                 }
-                if (showLowerApriori.checked) {
-                    traces.push({ x: xRange, y: [primary.bias - margin, primary.bias - margin], mode: 'lines', line: { color: lineColorApr, width: 1.5, dash: 'solid' }, name: `Lower a priori = ${(primary.bias - margin).toFixed(3)}`, showlegend: true });
-                }
-                if (showZero.checked) {
-                    traces.push({ x: xRange, y: [0,0], mode: 'lines', line: { color: 'black', width: 0.5, dash: 'solid' }, showlegend: false });
-                }
+                if(showUpperApriori.checked) traces.push({x:xRange, y:[primary.bias+margin,primary.bias+margin], mode:'lines', line:{color:'green',width:1.5}, name:`Upper a priori = ${(primary.bias+margin).toFixed(3)}`, showlegend:true});
+                if(showLowerApriori.checked) traces.push({x:xRange, y:[primary.bias-margin,primary.bias-margin], mode:'lines', line:{color:'green',width:1.5}, name:`Lower a priori = ${(primary.bias-margin).toFixed(3)}`, showlegend:true});
+                if(showZero.checked) traces.push({x:xRange, y:[0,0], mode:'lines', line:{color:'black',width:0.5}, showlegend:false});
                 
                 const annotations = [];
-                if (showZoneLabels.checked && allY.length > 0) {
-                    annotations.push({
-                        x: 0.98, y: yRange[1] - 1.5,
-                        xref: 'paper', yref: 'y',
-                        text: `${refAssay} > rank`,
-                        showarrow: false, font: { size: 10, color: '#888' },
-                        xanchor: 'right', yanchor: 'bottom'
-                    });
-                    annotations.push({
-                        x: 0.98, y: yRange[0] + 1.5,
-                        xref: 'paper', yref: 'y',
-                        text: `rank > ${refAssay}`,
-                        showarrow: false, font: { size: 10, color: '#888' },
-                        xanchor: 'right', yanchor: 'top'
-                    });
-                    annotations.push({
-                        x: 0.98, y: 0,
-                        xref: 'paper', yref: 'y',
-                        text: `${refAssay} = rank`,
-                        showarrow: false, font: { size: 10, color: '#888' },
-                        xanchor: 'right', yanchor: 'middle'
-                    });
+                if(showZoneLabels.checked && allY.length){
+                    annotations.push({x:0.98, y:yRange[1]-1.5, xref:'paper', yref:'y', text:`${refAssay} > rank`, showarrow:false, font:{size:10,color:'#888'}, xanchor:'right', yanchor:'bottom'});
+                    annotations.push({x:0.98, y:yRange[0]+1.5, xref:'paper', yref:'y', text:`rank > ${refAssay}`, showarrow:false, font:{size:10,color:'#888'}, xanchor:'right', yanchor:'top'});
+                    annotations.push({x:0.98, y:0, xref:'paper', yref:'y', text:`${refAssay} = rank`, showarrow:false, font:{size:10,color:'#888'}, xanchor:'right', yanchor:'middle'});
                 }
-                
-                const layout = {
-                    title: `Bland‑Altman: ${refAssay} vs. primary rank ${primaryRank} (points coloured by dominant serotype)`,
-                    xaxis: { title: 'Mean of reference and rank [Cq]', range: [20,42], showgrid: false, zeroline: false },
-                    yaxis: { title: `Difference (${refAssay} - rank) [Cq]`, range: yRange, showgrid: false, zeroline: false },
-                    hovermode: 'closest',
-                    plot_bgcolor: 'white',
-                    legend: { title: { text: 'Dominant serotype' } },
-                    annotations: annotations
-                };
+                const layout = { title:`Bland‑Altman: ${refAssay} vs. primary rank ${primaryRank}`, xaxis:{title:'Mean of reference and rank [Cq]', range:[20,42], showgrid:false, zeroline:false}, yaxis:{title:`Difference (${refAssay} - rank) [Cq]`, range:yRange, showgrid:false, zeroline:false}, hovermode:'closest', plot_bgcolor:'white', legend:{title:{text:'Dominant serotype'}}, annotations };
                 Plotly.newPlot('baPlot', traces, layout);
                 
-                // Stats table with CIs
-                const biasCI = showCIs ? `(95% CI: ${primary.bias_ci_low.toFixed(3)} – ${primary.bias_ci_high.toFixed(3)})` : '';
-                const upperLoACI = showCIs ? `(95% CI: ${primary.loa_up_ci_low.toFixed(3)} – ${primary.loa_up_ci_high.toFixed(3)})` : '';
-                const lowerLoACI = showCIs ? `(95% CI: ${primary.loa_lo_ci_low.toFixed(3)} – ${primary.loa_lo_ci_high.toFixed(3)})` : '';
-                statsTableBody.innerHTML = `
-                    <tr><td>Bias</td><td>${primary.bias.toFixed(3)} ${biasCI}</td></tr>
-                    <tr><td>Upper LoA</td><td>${primary.loa_upper.toFixed(3)} ${upperLoACI}</td></tr>
-                    <tr><td>Lower LoA</td><td>${primary.loa_lower.toFixed(3)} ${lowerLoACI}</td></tr>
-                    <tr><td>Number of pairs (primary rank)</td><td>${primary.mean_vals.length}</td></tr>
-                `;
-            } catch (err) {
-                console.error(err);
-                alert('BA calculation failed: ' + err.message);
-            }
+                const biasCIstr = showCIs ? `(95% CI: ${primary.bias_ci_low.toFixed(3)} – ${primary.bias_ci_high.toFixed(3)})` : '';
+                const upCIstr = showCIs ? `(95% CI: ${primary.loa_up_ci_low.toFixed(3)} – ${primary.loa_up_ci_high.toFixed(3)})` : '';
+                const lowCIstr = showCIs ? `(95% CI: ${primary.loa_lo_ci_low.toFixed(3)} – ${primary.loa_lo_ci_high.toFixed(3)})` : '';
+                statsTableBody.innerHTML = `<tr><td>Bias</td><td>${primary.bias.toFixed(3)} ${biasCIstr}</td></tr><tr><td>Upper LoA</td><td>${primary.loa_upper.toFixed(3)} ${upCIstr}</td></tr><tr><td>Lower LoA</td><td>${primary.loa_lower.toFixed(3)} ${lowCIstr}</td></tr><tr><td>Number of pairs (primary rank)</td><td>${primary.mean_vals.length}</td></tr>`;
+                statsDisplay.innerHTML = `<span>Bias:</span> ${primary.bias.toFixed(3)}<br><span>Upper LoA:</span> ${primary.loa_upper.toFixed(3)}<br><span>Lower LoA:</span> ${primary.loa_lower.toFixed(3)}<br><span>Upper a priori (±${margin}):</span> ${(primary.bias+margin).toFixed(3)}<br><span>Lower a priori (±${margin}):</span> ${(primary.bias-margin).toFixed(3)}<br>${showCIs?`<span>Bias 95% CI:</span> [${primary.bias_ci_low.toFixed(3)}, ${primary.bias_ci_high.toFixed(3)}]<br><span>Upper LoA 95% CI:</span> [${primary.loa_up_ci_low.toFixed(3)}, ${primary.loa_up_ci_high.toFixed(3)}]<br><span>Lower LoA 95% CI:</span> [${primary.loa_lo_ci_low.toFixed(3)}, ${primary.loa_lo_ci_high.toFixed(3)}]` : ''}`;
+                
+                // Correlation plot
+                if(showCorrelation.checked && diagData){
+                    correlationContainer.style.display = 'block';
+                    Plotly.newPlot('xyPlot', [{x:diagData.xy_x, y:diagData.xy_y, type:'scatter', mode:'markers', marker:{color:'steelblue', size:5}}], {xaxis:{title:`${refAssay} [Cq]`}, yaxis:{title:`Rank ${primaryRank} [Cq]`}, width:400, height:350, margin:{l:50,r:20,b:50,t:30}});
+                    xyStatsDiv.innerHTML = `Pearson r = ${diagData.xy_pearson_r.toFixed(4)} (p = ${diagData.xy_pearson_p.toFixed(4)})<br>Spearman ρ = ${diagData.xy_spearman_rho.toFixed(4)} (p = ${diagData.xy_spearman_p.toFixed(4)})`;
+                } else correlationContainer.style.display = 'none';
+                
+                // Diagnostic plots (normality + proportionality)
+                if(diagVisible && diagData){
+                    const diffs = diagData.norm_diffs;
+                    const histTrace = {x:diffs, type:'histogram', histnorm:'probability density', marker:{color:'lightblue'}, name:'Differences'};
+                    const xRangeN = [Math.min(...diffs), Math.max(...diffs)];
+                    const xVals = []; for(let i=0;i<=100;i++) xVals.push(xRangeN[0] + i*(xRangeN[1]-xRangeN[0])/100);
+                    const yVals = xVals.map(x => (1/(diagData.norm_sd*Math.sqrt(2*Math.PI))) * Math.exp(-0.5*((x-diagData.norm_mean)/diagData.norm_sd)**2));
+                    const normTrace = {x:xVals, y:yVals, type:'scatter', mode:'lines', line:{color:'red',width:2}, name:'Normal fit'};
+                    Plotly.newPlot('normPlot', [histTrace, normTrace], {xaxis:{title:'Difference [Cq]'}, yaxis:{title:'Density'}, width:400, height:350});
+                    normStatsDiv.innerHTML = `Shapiro‑Wilk p = ${diagData.norm_shapiro_p.toFixed(4)}`;
+                    const propTrace = {x:diagData.prop_means, y:diagData.prop_absdiffs, type:'scatter', mode:'markers', marker:{color:'darkorange', size:5}};
+                    const xMinP = Math.min(...diagData.prop_means), xMaxP = Math.max(...diagData.prop_means);
+                    const regLine = {x:[xMinP, xMaxP], y:[diagData.prop_intercept+diagData.prop_slope*xMinP, diagData.prop_intercept+diagData.prop_slope*xMaxP], type:'scatter', mode:'lines', line:{color:'red',width:2}, name:`Slope p=${diagData.prop_pval.toFixed(4)}`};
+                    Plotly.newPlot('propPlot', [propTrace, regLine], {xaxis:{title:'Mean of two measurements [Cq]'}, yaxis:{title:'|Difference| [Cq]'}, width:400, height:350});
+                    propStatsDiv.innerHTML = `Regression slope p = ${diagData.prop_pval.toFixed(4)}`;
+                }
+            } catch(err) { console.error(err); alert('BA calculation failed: '+err.message); }
         }
         
-        // Download ranked CSV
-        downloadBtn.addEventListener('click', () => {
-            if (!rankingResult) return;
-            const columns = Object.keys(rankingResult[0]);
-            const csvRows = [];
-            csvRows.push(columns.join(','));
-            for (const row of rankingResult) {
-                const values = columns.map(col => {
-                    let val = row[col];
-                    if (val === null || val === undefined) val = '';
-                    if (typeof val === 'string' && (val.includes(',') || val.includes('"'))) {
-                        val = '"' + val.replace(/"/g, '""') + '"';
-                    }
-                    return val;
-                });
-                csvRows.push(values.join(','));
-            }
-            const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
-            link.href = url;
-            link.setAttribute('download', 'ranked_serotypes.csv');
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
+        let diagVisible = false;
+        toggleDiagBtn.addEventListener('click', () => {
+            diagVisible = !diagVisible;
+            diagnosticsContainer.style.display = diagVisible ? 'block' : 'none';
+            toggleDiagBtn.textContent = diagVisible ? 'Hide diagnostic plots' : 'Show diagnostic plots';
+            if(diagVisible && diagData) updateAllPlots(); // re-trigger to render
+            else if(diagVisible) updateAllPlots();
         });
+        showCorrelation.addEventListener('change', () => { if(rankingResult) updateAllPlots(); });
+        showGreyPoints.addEventListener('change', () => { if(rankingResult) updateAllPlots(); });
         
         runRankingBtn.addEventListener('click', runRanking);
         const controls = [refSelect, primaryRankSelect, methodSelect, aprioriMarginInput, showBias, showUpperLoA, showLowerLoA, showUpperApriori, showLowerApriori, showCI, showZero, showZoneLabels];
-        controls.forEach(ctrl => ctrl.addEventListener('change', () => { if (rankingResult) updateBlandAltman(); }));
-        for (let i=1; i<=5; i++) {
-            if (showRankCheck[i]) showRankCheck[i].addEventListener('change', () => { if (rankingResult) updateBlandAltman(); });
-        }
+        controls.forEach(ctrl => ctrl.addEventListener('change', () => { if(rankingResult) updateAllPlots(); }));
+        for(let i=1;i<=5;i++) if(showRankCheck[i]) showRankCheck[i].addEventListener('change', () => { if(rankingResult) updateAllPlots(); });
+        
+        downloadBtn.addEventListener('click', () => {
+            if(!rankingResult) return;
+            const cols = Object.keys(rankingResult[0]);
+            const rows = [cols.join(',')];
+            for(const row of rankingResult){
+                rows.push(cols.map(c => { let v = row[c]; if(v===null||v===undefined) v=''; if(typeof v==='string' && (v.includes(',')||v.includes('"'))) v='"'+v.replace(/"/g,'""')+'"'; return v; }).join(','));
+            }
+            const blob = new Blob([rows.join('\n')], {type:'text/csv;charset=utf-8;'});
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'ranked_serotypes.csv'; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(a.href);
+        });
     </script>
 </body>
 </html>
