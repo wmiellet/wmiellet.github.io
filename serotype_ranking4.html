@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Serotype Ranking + Bland‑Altman + Diagnostics (v1.0)</title>
+    <title>Serotype Ranking + Bland‑Altman + Diagnostics (v1.1)</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; }
@@ -193,7 +193,7 @@
         }
         initWebR();
 
-        async function decodeFileToCleanUTF8(file) { /* same as before */ 
+        async function decodeFileToCleanUTF8(file) {
             const buffer = await file.arrayBuffer();
             const bytes = new Uint8Array(buffer);
             if (bytes.length>=2 && bytes[0]===0x50 && bytes[1]===0x4B) throw new Error('Excel or ZIP? Use CSV UTF-8.');
@@ -295,7 +295,6 @@
                 ranks <- c(${showRanks.join(',')})
                 if(!"rank1_assay"%in%names(dt)) stop("rank1_assay missing")
                 
-                # Primary rank valid pairs (both <40)
                 valid_primary <- !is.na(dt[[ref_col]]) & !is.na(dt[[primary_rank_col]]) & dt[[primary_rank_col]] < 40
                 if(sum(valid_primary)<2) { result <- list(error="Insufficient pairs for primary rank") } else {
                     x_prim <- dt[[ref_col]][valid_primary]
@@ -304,7 +303,6 @@
                     mean_prim <- (x_prim + y_prim)/2
                     n <- length(diff_prim)
                     
-                    # BA stats per method
                     if("${method}"=="parametric"){
                         bias <- mean(diff_prim); sd_diff <- sd(diff_prim)
                         loa_up <- bias+1.96*sd_diff; loa_lo <- bias-1.96*sd_diff
@@ -332,28 +330,28 @@
                         loa_lo_ci_low<-quantile(boot_lo,0.025); loa_lo_ci_high<-quantile(boot_lo,0.975)
                     }
                     
-                    # Collect overlay points (all selected ranks) with conditions for grey points
-                    all_col <- list()
+                    # Collect overlay points as a data.table (will become array of objects in JSON)
+                    all_points <- data.table()
                     for (i in seq_along(all_rank_cols)) {
                         rank_col <- all_rank_cols[i]; rk <- ranks[i]
                         valid_all <- !is.na(dt[[ref_col]]) & !is.na(dt[[rank_col]])
                         if(sum(valid_all)>0){
-                            all_col[[as.character(rk)]] <- data.table(
+                            all_points <- rbind(all_points, data.table(
                                 x = (dt[[ref_col]][valid_all] + dt[[rank_col]][valid_all])/2,
                                 y = dt[[ref_col]][valid_all] - dt[[rank_col]][valid_all],
                                 both_lt40 = dt[[ref_col]][valid_all] < 40 & dt[[rank_col]][valid_all] < 40,
-                                rank1_assay = dt[["rank1_assay"]][valid_all]
-                            )
+                                rank1_assay = dt[["rank1_assay"]][valid_all],
+                                rank = rk
+                            ))
                         }
                     }
-                    all_points <- rbindlist(all_col, idcol="rank")
                     
                     # Diagnostic data for primary rank
                     prop_model <- lm(abs(diff_prim) ~ mean_prim)
                     prop_slope <- coef(prop_model)[2]; prop_intercept <- coef(prop_model)[1]; prop_pval <- summary(prop_model)$coefficients[2,4]
                     shapiro_test <- shapiro.test(diff_prim)
                     
-                    # ICC for primary rank vs reference (both <40)
+                    # ICC (both <40)
                     icc_result <- tryCatch({
                         dt_icc <- data.table(ref = x_prim, rank = y_prim)
                         if(nrow(dt_icc)>=3 && sd(dt_icc$ref)>0 && sd(dt_icc$rank)>0){
@@ -375,7 +373,7 @@
                         } else "ICC cannot be computed (insufficient variability)"
                     }, error=function(e) paste("ICC error:", e$message))
                     
-                    # Cohen's kappa (binary <40) for primary rank vs reference
+                    # Cohen's kappa (binary <40)
                     kappa_result <- tryCatch({
                         dt_kap <- data.table(ref = dt[[ref_col]], rank = dt[[primary_rank_col]])
                         dt_kap <- na.omit(dt_kap)
@@ -399,7 +397,7 @@
                                        loa_up_ci_low=loa_up_ci_low, loa_up_ci_high=loa_up_ci_high,
                                        loa_lo_ci_low=loa_lo_ci_low, loa_lo_ci_high=loa_lo_ci_high,
                                        mean_vals=mean_prim, diff_vals=diff_prim),
-                        overlay = all_points,
+                        overlay = as.data.frame(all_points),
                         diagnostics = list(
                             norm_diffs = diff_prim, norm_shapiro_p = shapiro_test$p.value,
                             norm_mean = mean(diff_prim), norm_sd = sd(diff_prim),
@@ -422,7 +420,7 @@
                 const result = JSON.parse(await statsRes.toString());
                 if (result.error) { alert(result.error); return; }
                 const primary = result.primary;
-                const overlay = result.overlay;
+                const overlay = result.overlay;  // this is an array of row objects
                 diagData = result.diagnostics;
                 currentICC = result.icc;
                 currentKappa = result.kappa;
@@ -436,27 +434,33 @@
                 let colorIdx = 0;
                 const getColor = (assay) => { if(!colorMap.has(assay)) colorMap.set(assay, palette[colorIdx++ % palette.length]); return colorMap.get(assay); };
                 
-                // Points: split by both_lt40
-                const bothLT40 = overlay[both_lt40 == true];
-                const notBoth = overlay[both_lt40 == false];
+                // Separate points by both_lt40
+                const bothLT40 = overlay.filter(p => p.both_lt40 === true);
+                const notBoth = overlay.filter(p => p.both_lt40 === false);
+                
+                // Coloured points (both <40)
                 if(bothLT40.length){
                     const groups = new Map();
-                    for(let i=0;i<bothLT40.x.length;i++){
-                        const assay = bothLT40.rank1_assay[i];
-                        if(!groups.has(assay)) groups.set(assay, {x:[],y:[]});
-                        groups.get(assay).x.push(bothLT40.x[i]); groups.get(assay).y.push(bothLT40.y[i]);
+                    for(const pt of bothLT40){
+                        const assay = pt.rank1_assay;
+                        if(!groups.has(assay)) groups.set(assay, {x:[], y:[]});
+                        groups.get(assay).x.push(pt.x);
+                        groups.get(assay).y.push(pt.y);
                     }
                     for(const [assay, pts] of groups){
                         traces.push({x:pts.x, y:pts.y, type:'scatter', mode:'markers', marker:{color:getColor(assay), size:9, opacity:0.8}, name:assay, showlegend:true, legendgroup:assay});
                     }
                 }
+                // Grey points (single pos. or double neg.)
                 if(showGreyPoints.checked && notBoth.length){
-                    traces.push({x:notBoth.x, y:notBoth.y, type:'scatter', mode:'markers', marker:{color:'lightgray', size:7, opacity:0.5}, name:'Single pos. / double neg.', showlegend:true});
+                    const greyX = notBoth.map(p=>p.x);
+                    const greyY = notBoth.map(p=>p.y);
+                    traces.push({x:greyX, y:greyY, type:'scatter', mode:'markers', marker:{color:'lightgray', size:7, opacity:0.5}, name:'Single pos. / double neg.', showlegend:true});
                 }
                 
-                // BA lines (same as before)
+                // BA lines
                 const xRange = [Math.min(...primary.mean_vals,20), Math.max(...primary.mean_vals,42)];
-                const allY = [...primary.diff_vals, ...(overlay.y||[])];
+                const allY = [...primary.diff_vals, ...overlay.map(p=>p.y)];
                 const yRange = [Math.min(...allY, primary.bias, primary.loa_upper, primary.loa_lower, -20), Math.max(...allY, primary.bias, primary.loa_upper, primary.loa_lower, 20)];
                 if(showBias.checked){
                     traces.push({x:xRange, y:[primary.bias,primary.bias], mode:'lines', line:{color:'blue',width:2,dash:'solid'}, name:`Bias = ${primary.bias.toFixed(3)}`, showlegend:true});
@@ -495,8 +499,18 @@
                 const biasCIstr = showCIs ? `(95% CI: ${primary.bias_ci_low.toFixed(3)} – ${primary.bias_ci_high.toFixed(3)})` : '';
                 const upCIstr = showCIs ? `(95% CI: ${primary.loa_up_ci_low.toFixed(3)} – ${primary.loa_up_ci_high.toFixed(3)})` : '';
                 const lowCIstr = showCIs ? `(95% CI: ${primary.loa_lo_ci_low.toFixed(3)} – ${primary.loa_lo_ci_high.toFixed(3)})` : '';
-                statsTableBody.innerHTML = `<tr><td>Bias</td><td>${primary.bias.toFixed(3)} ${biasCIstr}</td></tr><tr><td>Upper LoA</td><td>${primary.loa_upper.toFixed(3)} ${upCIstr}</td></tr><tr><td>Lower LoA</td><td>${primary.loa_lower.toFixed(3)} ${lowCIstr}</td></tr><tr><td>Number of pairs (primary rank)</td><td>${primary.mean_vals.length}</td></tr>`;
-                statsDisplay.innerHTML = `<span>Bias:</span> ${primary.bias.toFixed(3)}<br><span>Upper LoA:</span> ${primary.loa_upper.toFixed(3)}<br><span>Lower LoA:</span> ${primary.loa_lower.toFixed(3)}<br><span>Upper a priori (±${margin}):</span> ${(primary.bias+margin).toFixed(3)}<br><span>Lower a priori (±${margin}):</span> ${(primary.bias-margin).toFixed(3)}<br>${showCIs?`<span>Bias 95% CI:</span> [${primary.bias_ci_low.toFixed(3)}, ${primary.bias_ci_high.toFixed(3)}]<br><span>Upper LoA 95% CI:</span> [${primary.loa_up_ci_low.toFixed(3)}, ${primary.loa_up_ci_high.toFixed(3)}]<br><span>Lower LoA 95% CI:</span> [${primary.loa_lo_ci_low.toFixed(3)}, ${primary.loa_lo_ci_high.toFixed(3)}]` : ''}`;
+                statsTableBody.innerHTML = `<tr><td>Bias</td><td>${primary.bias.toFixed(3)} ${biasCIstr}</td></tr>
+                    <tr><td>Upper LoA</td><td>${primary.loa_upper.toFixed(3)} ${upCIstr}</td></tr>
+                    <tr><td>Lower LoA</td><td>${primary.loa_lower.toFixed(3)} ${lowCIstr}</td></tr>
+                    <tr><td>Number of pairs (primary rank)</td><td>${primary.mean_vals.length}</td></tr>`;
+                statsDisplay.innerHTML = `<span>Bias:</span> ${primary.bias.toFixed(3)}<br>
+                    <span>Upper LoA:</span> ${primary.loa_upper.toFixed(3)}<br>
+                    <span>Lower LoA:</span> ${primary.loa_lower.toFixed(3)}<br>
+                    <span>Upper a priori (±${margin}):</span> ${(primary.bias+margin).toFixed(3)}<br>
+                    <span>Lower a priori (±${margin}):</span> ${(primary.bias-margin).toFixed(3)}<br>
+                    ${showCIs?`<span>Bias 95% CI:</span> [${primary.bias_ci_low.toFixed(3)}, ${primary.bias_ci_high.toFixed(3)}]<br>
+                    <span>Upper LoA 95% CI:</span> [${primary.loa_up_ci_low.toFixed(3)}, ${primary.loa_up_ci_high.toFixed(3)}]<br>
+                    <span>Lower LoA 95% CI:</span> [${primary.loa_lo_ci_low.toFixed(3)}, ${primary.loa_lo_ci_high.toFixed(3)}]` : ''}`;
                 
                 // Correlation plot
                 if(showCorrelation.checked && diagData){
@@ -529,7 +543,7 @@
             diagVisible = !diagVisible;
             diagnosticsContainer.style.display = diagVisible ? 'block' : 'none';
             toggleDiagBtn.textContent = diagVisible ? 'Hide diagnostic plots' : 'Show diagnostic plots';
-            if(diagVisible && diagData) updateAllPlots(); // re-trigger to render
+            if(diagVisible && diagData) updateAllPlots();
             else if(diagVisible) updateAllPlots();
         });
         showCorrelation.addEventListener('change', () => { if(rankingResult) updateAllPlots(); });
