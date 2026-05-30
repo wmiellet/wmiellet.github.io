@@ -44,6 +44,8 @@ Figure 2: [Legend text].
 
 [serotype Agreement plot](https://wmiellet.github.io/serotype_ranking3.html).
 
+[new serotype Agreement plot](https://wmiellet.github.io/serotype_ranking4.html).
+
 ## Limitations
 [Text].
 
