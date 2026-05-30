@@ -3,40 +3,56 @@
 <i>Disclaimer: This page is being worked on. The page is currently incomplete and the text is somewhat rough around the edges.</i>
 
 ## Overview
-Polymicrobial samples, such as saliva and oropharyngeal specimens, often harbor high bacterial diversity, with many species present in low abundance. In such settings, confidently identifying a target bacterial population becomes difficult when closely-related bacteria are abundant and either frequently engage in gene exchange or share a high degree of similarity due to ancestral recombination or a common ancestor. Examples include <i>Streptococcus pneumoniae</i>, <i>Neisseria meningitidis</i>, <i>Haemophilus influenzae</i> and <i>Streptococcus pyogenes</i> in saliva, as well as pathogenic <i>Escherichia coli</i> in the gut. To address this, we have developed a sensitive, culture-independent detection strategy called the dual-target (or "Two-to-Tango") approach [1].
+The human oral cavity and gut is composed of a plethora of bacterial species, <del>representing diverse bacterial phyla that thrive in various bacterial communities</del>, which have adapted to specific micro-sites, different bacterial communities, or metabolic niches. It has been estimated that the oral cavity contains approx. 700 bacterial species [<i>ref</i>], many of which are present in low abundance and frequently co-occur with many closely-related species. In such settings, confidently identifying a target bacterial population becomes difficult when closely-related bacteria are highly prevalent and frequently engage in gene exchange or share a high degree of similarity due to ancestral recombination or a common ancestor. Examples include <i>Streptococcus pneumoniae</i>, <i>Neisseria meningitidis</i>, <i>Haemophilus influenzae</i> and <i>Streptococcus pyogenes</i> in saliva, as well as pathogenic <i>Escherichia coli</i> in the gut. To address this, we have developed a sensitive culture-independent detection strategy termed the dual-target (or "Two-to-Tango") approach [1].
 
-The dual-target approach uses agreement statistics to determine whether two genetic markers exhibit conditional dependence. Demonstrating such dependence between genetic markers, can be used to confirm that a specific bacterial population can be individually quantified. While correlation quantifies the strength of a relationship, agreement assesses whether two methods are likely to measure the same quantity of a kind [2]. This distinction reveals whether the genetic markers are jointly measuring the abundance of strains from a single bacterial population, or instead reflecting two distinct populations.
+The dual-target approach uses agreement statistics (Fig. 1) to determine whether two genetic markers exhibit conditional dependence. Demonstrating such dependence between genetic markers in highly polymicrobial specimens, can be used to confirm that a specific bacterial population can be individually quantified. While correlation quantifies the strength of a relationship, agreement assesses whether two methods are likely to measure the same quantity of a kind [2]. This distinction reveals whether the genetic markers are jointly measuring the abundance of strains from a single bacterial population, or instead reflecting two distinct populations.
+
+###### [Fig. 1]
+###### [Legend text: Molecular detection challenged when facing different specimen with differing degree of polymicrobial composition. (A) Suspension of a pure culture with bacterial strain possessing two genes, gene A and B, which are used to detect presence of bacterial population. (B) Suspension of mixed bacterial community with bacterial strain present from panel A as well as other bacterial strains, all of which contain neither gene A or gene B. (C) Suspension of mixed bacterial community, containing bacterial strain from panel A, as well as other bacterial strains, including strains positive for either gene A or gene B. By adapting the method proposed by Bland and Altman and applying a believe-the-negative rule [<i>ref</i>], we can monitor whether paired measurements of genetic markers exhibit conditional dependence. When applied to a set of samples positive for both targets, this information can be used to assess whether both targets are derived from the same bacterial population.] 
 
 ## Producing an Agreement Plot
-Unlike a correlation plot, where each axis represents one genetic marker, an agreement plot readily allows one to inspect two assays for conditional independence. In an agreement plot the <i>x</i>-axis represents the mean of the two measurements (from marker A and marker B), and the <i>y</i>-axis represents the difference between them. The limits of agreement define the interval within which 95% of the differences fall . To evaluate the precision of these limits, 95% confidence intervals can be added. If the limits of agreement exceed a predefined acceptable range, the two genetic markers cannot be considered reliable for detecting a single bacterial species with sufficient confidence. As a rule of thumb, we recommend a predefined acceptable limit of 2 Cq (equivalent to a 4 fold difference in concentration) [2].
+Unlike a correlation plot, where each axis represents one genetic marker, an agreement plot readily allows one to inspect two assays for conditional independence. In an agreement plot the <i>x</i>-axis represents the mean of the two measurements (from marker A and marker B), and the <i>y</i>-axis represents the difference between them. The limits of agreement (LoAs) define the interval within which 95% of the differences fall. To evaluate the precision of these limits, 95% confidence intervals can be added. If the limits of agreement exceed a predefined acceptable range, the two genetic markers cannot be considered reliable for detecting a single bacterial species with sufficient confidence. As a rule of thumb, we recommend a predefined acceptable limit of 2 Cq (equivalent to a 4 fold difference in concentration) [2]. When the LoAs (and their respective 95% CIs) don't exceed the predefined limits, the two targets can be said to exhibit conditional dependence in the set of samples.
 
 ### Assumptions of the Method
 The proposed method rests on two assumptions: (I) the differences between genetic marker measurements are non normally distributed, and (II) the difference between the two markers is not proportional to the mean of the two measurements [2]. When one of the two markers exhibits reduced specificity and samples often contain strains that are positive for only one of the markers, non parametric limits of agreement should be considered [4]. When using non-parametric limits, the median difference is indicated in the agreement plot as well as the limits of agreement based on the 2.5 and 97.5th percentile.
 
 ## Types of Agreement plots
-We distinguish between two types of agreement plots: the population-specific agreement plot and the serotyping agreement plot. In the former, two genetic markers with presumed population-specific accuracy are compared, whereas in the latter, a serotype-specific marker is compared against a population-specific marker. Serotype-specific markers are allowed to have lower abundance than population-specific markers to account for multiple serotype carriage. However, when the abundance of a serotype-specific marker strongly exceeds that of the population-specific marker, this finding suggests conditional independence—i.e., the two markers are not measuring the same bacterial population. In such cases, the serotype-specific quantification can be attributed to confounding by a different bacterial population. For the serotype agreement plot, the acceptable limit can be either 2 Cq or the limits of agreement derived from markers A and B themselves [3].
+We distinguish between two types of agreement plots: the <i>population-specific</i> agreement plot and the <i>serotyping</i> agreement plot. In the former, two genetic markers with presumed population-specific accuracy are compared, whereas in the latter, a serotype-specific marker is compared against a population-specific marker. Serotype-specific markers are allowed to have lower abundance than population-specific markers to account for multiple serotype carriage. However, when the abundance of a serotype-specific marker strongly exceeds that of the population-specific marker, this finding suggests conditional independence, i.e., the two markers are not measuring the same bacterial population. In such cases, the serotype-specific quantification can be attributed to confounding by a different bacterial population. For the serotype agreement plot, the acceptable limit can be either 2 Cq or the limits of agreement derived from markers A and B themselves [3].
 
 ### population-specific agreement plot
 [Text].
 <iframe src="https://wmiellet.github.io/plot.html" width="100%" height="350" frameborder="0"></iframe>
-Figure 1: [Legend text].
-[Text]
+
+###### Figure 1: [Legend text].
+###### [Text]
 
 <iframe src="https://wmiellet.github.io/plot2.html" width="100%" height="350" frameborder="0"></iframe>
-Figure 2: [Legend text].
+
+###### Figure 2: 
+###### [Legend text].
 
 ### serotyping agreement plot
-[Text].
+##### [Text].
 
 ## Interpretation
-[Text].
+[Text]. We 
 
 ### Agreement indices
+Agreement indices can be used to complement agreement plot and guide interpretation. Nevertheless, it's important to note that indices can never capture all the information displayed by an agreement plot. So at best, agreement indices can be used as complementary tool but not as replacement of agreement plots.
+
+A comprehensive discussion of indices is not within the scope of this text, therefore discussion is limited to indices deemed useful for the current analysis.
+<i>Refer to Bland-Altman paper on comparison to correlation coefficients.</i>
+
 #### ICC
 [Text].
+
 #### Cohen's kappa
 [Text].
+
 #### Light's kappa
+When two genetic markers exhibit poor agreement in binar classification due to one of two targets, an investigator can consider Light's kappa coefficient to assess whether validity of the target combination for a particular specimen type can be observed. Light's kappa coefficient is an assymetric kappa coefficient, that can be useful when a specimen type harbors a highly prevalent off-target bacterial population with one of two genetic markers present. Similar to Cohen's kappa coefficient, Light's kappa coefficient can only be used as complemtary tool to an agreement plot (and ICC index).
+
+
 [Text].
 
 ## Produce an Agreement plot with your own data!
@@ -47,7 +63,7 @@ Figure 2: [Legend text].
 [new serotype Agreement plot](https://wmiellet.github.io/serotype_ranking4.html).
 
 ## Limitations
-[Text].
+While combining two genetic markers (particularly those belonging to different connectivity networks) can improve the specificity of molecular detection, the proposed method has a number of limitations. Importantly, diagnostic specificity can be excquisitely monitored but not controlled for when due to subgroup variation in bacterial composition, a specimen type exhibits lack of conditional dependence. In such instances, investigators can consider to redesign molecular targets in an attempt to improve diagnostic specificity or utilize alternative approaches, such a microfluidics-mediated linkage analysis <i>[ref]</i>. Furthermore...
 
 ## Recommendations & concluding remarks
 We encourage others to routinely monitor agreement between genetic markers. Due to spatiotemporal variation in sample composition or study group composition, the diagnostic specificity of molecular assays fluctuates. This phenomenon is known as the spectrum effect and is an important source of methodological bias across studies and inter study variation [5]. To avoid these pitfalls, we recommend assessing agreement between genetic markers on a per study subgroup basis, and for annual cross sectional studies, on a yearly basis within a single subgroup.
