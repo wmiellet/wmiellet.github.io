@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Serotype Ranking & Bland‑Altman (coloured by dominant serotype) v0.16</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        .flex-container { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+        .panel { background: #f9f9f9; border: 1px solid #ddd; border-radius: 6px; padding: 15px; margin-bottom: 20px; }
+        .panel h3 { margin-top: 0; font-size: 16px; }
+        .assay-list { max-height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 8px; background: white; }
+        .assay-list label { display: block; margin: 4px 0; font-size: 13px; }
+        #progressContainer { width: 100%; max-width: 500px; margin: 15px 0; display: none; }
+        .progress-bg { background: #e0e0e0; border-radius: 6px; height: 28px; overflow: hidden; }
+        .progress-fill { width: 0%; height: 100%; background: #4CAF50; border-radius: 6px;
+                         text-align: center; color: white; line-height: 28px; font-weight: bold; }
+        #statusMsg { margin: 10px 0; color: #555; font-style: italic; }
+        #baPlot { width: 100%; height: 500px; }
+        .stats-table { margin-top: 15px; border-collapse: collapse; width: 100%; font-size: 13px; }
+        .stats-table th, .stats-table td { border: 1px solid #ccc; padding: 6px; text-align: center; }
+        .stats-table th { background: #eee; }
+        .control-group { margin: 10px 0; }
+        .control-group label { margin-right: 15px; display: inline-block; }
+        button { background: #4CAF50; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin: 10px 0; }
+        button:hover { background: #45a049; }
+        select, input[type="number"] { padding: 4px; }
+        .download-btn { background-color: #2196F3; }
+        .download-btn:hover { background-color: #0b7dda; }
+    </style>
+</head>
+<body>
+    <h1>Serotype Ranking & Bland‑Altman (coloured by dominant serotype) v0.16</h1>
+    <p>Upload a CSV file. The <strong>first column</strong> is treated as a reference assay (e.g., piaB) and is <strong>excluded from ranking</strong>. All other columns are serotype assays (Ct values, ≥40 = negative).<br>
+    Choose which serotype assays to exclude, then rank. Points are coloured by the dominant (rank1) serotype.<br>
+    Select a reference assay (default = first column) and a primary rank for Bland‑Altman statistics. Overlay other ranks as coloured points.</p>
+
+    <input type="file" id="csvFile" accept=".csv" />
+    <button id="downloadRankedBtn" class="download-btn" style="display:none;">Download ranked CSV</button>
+
+    <div id="progressContainer">
+        <div class="progress-bg"><div id="progressBar" class="progress-fill">0%</div></div>
+        <div id="statusMsg"></div>
+    </div>
+
+    <div id="controlPanel" style="display:none;">
+        <div class="flex-container">
+            <div class="panel" style="flex:1;">
+                <h3>Exclude serotype assays from ranking</h3>
+                <div id="assayChecklist" class="assay-list"></div>
+                <button id="runRankingBtn">Run Ranking & Update Plot</button>
+            </div>
+            <div class="panel" style="flex:1;">
+                <h3>Bland‑Altman settings</h3>
+                <div class="control-group">
+                    <label>Reference assay: <select id="refSelect"></select></label>
+                </div>
+                <div class="control-group">
+                    <label>Primary rank for BA (lines, stats): 
+                        <select id="primaryRankSelect">
+                            <option value="1">Rank 1</option>
+                            <option value="2">Rank 2</option>
+                            <option value="3">Rank 3</option>
+                            <option value="4">Rank 4</option>
+                            <option value="5">Rank 5</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="control-group">
+                    <label>Overlay points from ranks:</label>
+                    <label><input type="checkbox" id="showRank1" checked> Rank1</label>
+                    <label><input type="checkbox" id="showRank2"> Rank2</label>
+                    <label><input type="checkbox" id="showRank3"> Rank3</label>
+                    <label><input type="checkbox" id="showRank4"> Rank4</label>
+                    <label><input type="checkbox" id="showRank5"> Rank5</label>
+                </div>
+                <div class="control-group">
+                    <label>Limit method:
+                        <select id="methodSelect">
+                            <option value="parametric">Parametric (mean ± 1.96·SD)</option>
+                            <option value="nonparametric">Non‑parametric (percentiles)</option>
+                            <option value="mad" selected>MAD‑based (median ± 1.96·MAD)</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="control-group">
+                    <label>A priori margin (±): <input type="number" id="aprioriMargin" value="2" step="0.1" min="0"></label>
+                </div>
+                <div class="control-group">
+                    <label><input type="checkbox" id="showBias" checked> Show bias</label>
+                    <label><input type="checkbox" id="showUpperLoA" checked> Show upper LoA</label>
+                    <label><input type="checkbox" id="showLowerLoA" checked> Show lower LoA</label>
+                    <label><input type="checkbox" id="showUpperApriori" checked> Show upper a priori</label>
+                    <label><input type="checkbox" id="showLowerApriori" checked> Show lower a priori</label>
+                    <label><input type="checkbox" id="showCI"> Show 95% CIs</label>
+                    <label><input type="checkbox" id="showZero" checked> Show zero line</label>
+                    <label><input type="checkbox" id="showZoneLabels"> Show zone labels</label>
+                </div>
+                <div id="statsDiv" style="margin-top:10px; font-size:13px;"></div>
+            </div>
+        </div>
+        <div id="baPlotContainer">
+            <h3>Bland‑Altman Plot (Reference vs. Primary Rank – points coloured by dominant serotype)</h3>
+            <div id="baPlot"></div>
+            <table id="statsTable" class="stats-table"><thead><tr><th>Statistic</th><th>Value (95% CI)</th></tr></thead><tbody></tbody>能有
+        </div>
+    </div>
+
+    <script type="module">
+        import { WebR } from 'https://webr.r-wasm.org/v0.4.0/webr.mjs';
+
+        // DOM elements
+        const fileInput = document.getElementById('csvFile');
+        const downloadBtn = document.getElementById('downloadRankedBtn');
+        const progBar = document.getElementById('progressBar');
+        const statusMsg = document.getElementById('statusMsg');
+        const progCont = document.getElementById('progressContainer');
+        const controlPanel = document.getElementById('controlPanel');
+        const assayChecklistDiv = document.getElementById('assayChecklist');
+        const runRankingBtn = document.getElementById('runRankingBtn');
+        const refSelect = document.getElementById('refSelect');
+        const primaryRankSelect = document.getElementById('primaryRankSelect');
+        const showRankCheck = {
+            1: document.getElementById('showRank1'),
+            2: document.getElementById('showRank2'),
+            3: document.getElementById('showRank3'),
+            4: document.getElementById('showRank4'),
+            5: document.getElementById('showRank5')
+        };
+        const methodSelect = document.getElementById('methodSelect');
+        const aprioriMarginInput = document.getElementById('aprioriMargin');
+        const showBias = document.getElementById('showBias');
+        const showUpperLoA = document.getElementById('showUpperLoA');
+        const showLowerLoA = document.getElementById('showLowerLoA');
+        const showUpperApriori = document.getElementById('showUpperApriori');
+        const showLowerApriori = document.getElementById('showLowerApriori');
+        const showCI = document.getElementById('showCI');
+        const showZero = document.getElementById('showZero');
+        const showZoneLabels = document.getElementById('showZoneLabels');
+        const statsTableBody = document.querySelector('#statsTable tbody');
+        const baPlotDiv = document.getElementById('baPlot');
+
+        let webR;
+        let Rready = false;
+        let originalData = null;
+        let serotypeCols = [];
+        let rankingResult = null;
+
+        function showProgress(pct, msg) {
+            progCont.style.display = 'block';
+            progBar.style.width = pct + '%';
+            progBar.textContent = pct + '%';
+            statusMsg.textContent = msg || '';
+        }
+        function hideProgress() {
+            setTimeout(() => { progCont.style.display = 'none'; }, 800);
+        }
+
+        async function initWebR() {
+            webR = new WebR();
+            try {
+                showProgress(5, 'Starting R...');
+                await webR.init();
+                showProgress(20, 'Installing data.table and jsonlite...');
+                await webR.evalR('webr::install(c("data.table", "jsonlite"))');
+                showProgress(50, 'Loading libraries...');
+                await webR.evalR('library(data.table); library(jsonlite)');
+                Rready = true;
+                showProgress(100, 'Ready. Upload a CSV file.');
+            } catch (e) {
+                showProgress(0, 'R init failed: ' + e.message);
+                console.error(e);
+                Rready = false;
+            } finally {
+                hideProgress();
+            }
+        }
+        initWebR();
+
+        async function decodeFileToCleanUTF8(file) {
+            const buffer = await file.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+            if (bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4B)
+                throw new Error('File appears to be an Excel (.xlsx) or ZIP. Please use CSV UTF-8.');
+            let str;
+            if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE)
+                str = new TextDecoder('utf-16le').decode(bytes);
+            else if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF)
+                str = new TextDecoder('utf-16be').decode(bytes);
+            else {
+                str = new TextDecoder('utf-8').decode(bytes);
+                if (str.includes('\0')) {
+                    str = new TextDecoder('utf-16le').decode(bytes);
+                    if (str.includes('\0')) str = new TextDecoder('utf-16be').decode(bytes);
+                }
+            }
+            str = str.replace(/\0/g, '');
+            return new TextEncoder().encode(str);
+        }
+
+        // Load CSV, store original data, populate serotype checklist, set default reference
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file || !Rready) return;
+            try {
+                showProgress(10, 'Reading file...');
+                const utf8Bytes = await decodeFileToCleanUTF8(file);
+                await webR.FS.writeFile('/home/data.csv', utf8Bytes);
+                showProgress(30, 'Loading data...');
+                const res = await webR.evalR(`
+                    library(jsonlite)
+                    dt <- fread("/home/data.csv", header = TRUE)
+                    toJSON(list(
+                        names = names(dt),
+                        data = as.data.frame(dt)
+                    ), auto_unbox = TRUE, digits = 8)
+                `);
+                const jsonStr = await res.toString();
+                const parsed = JSON.parse(jsonStr);
+                originalData = parsed.data;
+                const allCols = parsed.names;
+                if (allCols.length < 2) throw new Error('CSV must have at least 2 columns.');
+                const referenceCol = allCols[0];
+                serotypeCols = allCols.slice(1);
+                
+                assayChecklistDiv.innerHTML = '';
+                serotypeCols.forEach(assay => {
+                    const label = document.createElement('label');
+                    label.innerHTML = `<input type="checkbox" class="excludeCheck" value="${assay}"> ${assay}`;
+                    assayChecklistDiv.appendChild(label);
+                });
+                
+                refSelect.innerHTML = '';
+                allCols.forEach(col => {
+                    const opt = document.createElement('option');
+                    opt.value = col;
+                    opt.textContent = col;
+                    refSelect.appendChild(opt);
+                });
+                refSelect.value = referenceCol;
+                
+                controlPanel.style.display = 'block';
+                showProgress(100, 'CSV loaded. Select serotype assays to exclude, then click "Run Ranking".');
+            } catch (err) {
+                console.error(err);
+                alert('Error loading CSV: ' + err.message);
+            } finally {
+                hideProgress();
+            }
+        });
+
+        // Ranking function – only ranks serotypeCols (after exclusions)
+        async function runRanking() {
+            if (!originalData) return;
+            const excluded = Array.from(document.querySelectorAll('.excludeCheck:checked')).map(cb => cb.value);
+            const excludedR = excluded.length ? `c(${excluded.map(s => `"${s.replace(/"/g, '\\"')}"`).join(', ')})` : 'c()';
+            const dataJson = JSON.stringify(originalData).replace(/\\/g, '\\\\').replace(/`/g, '\\`');
+            showProgress(40, 'Ranking serotypes (Ct<40 only)...');
+            try {
+                const script = `
+                    library(data.table)
+                    library(jsonlite)
+                    data_json <- '${dataJson}'
+                    dt <- as.data.table(fromJSON(data_json))
+                    all_serotype_cols <- names(dt)[-1]
+                    excluded <- ${excludedR}
+                    assay_cols <- setdiff(all_serotype_cols, excluded)
+                    dt[, (assay_cols) := lapply(.SD, as.numeric), .SDcols = assay_cols]
+                    n_ranks <- 5
+                    cutoff <- 40
+                    cq_cols <- paste0("rank", 1:n_ranks, "_Cq")
+                    name_cols <- paste0("rank", 1:n_ranks, "_assay")
+                    result_cq <- matrix(NA_real_, nrow = nrow(dt), ncol = n_ranks)
+                    result_name <- matrix("-", nrow = nrow(dt), ncol = n_ranks)
+                    for (i in 1:nrow(dt)) {
+                        vals <- unlist(dt[i, ..assay_cols])
+                        names <- assay_cols
+                        valid <- !is.na(vals) & vals < cutoff
+                        if (any(valid)) {
+                            valid_vals <- vals[valid]
+                            valid_names <- names[valid]
+                            ord <- order(valid_vals)
+                            top_vals <- valid_vals[ord]
+                            top_names <- valid_names[ord]
+                            k <- min(n_ranks, length(top_vals))
+                            result_cq[i, 1:k] <- top_vals[1:k]
+                            result_name[i, 1:k] <- top_names[1:k]
+                        }
+                    }
+                    for (k in 1:n_ranks) {
+                        set(dt, j = cq_cols[k], value = result_cq[, k])
+                        set(dt, j = name_cols[k], value = result_name[, k])
+                    }
+                    keep_cols <- c(names(dt)[1], assay_cols, cq_cols, name_cols)
+                    out_dt <- dt[, ..keep_cols]
+                    toJSON(as.data.frame(out_dt), auto_unbox = TRUE, digits = 8)
+                `;
+                const result = await webR.evalR(script);
+                const jsonStr = await result.toString();
+                rankingResult = JSON.parse(jsonStr);
+                showProgress(100, 'Ranking completed.');
+                downloadBtn.style.display = 'inline-block';
+                updateBlandAltman();
+            } catch (err) {
+                console.error(err);
+                alert('Ranking failed: ' + err.message);
+            } finally {
+                hideProgress();
+            }
+        }
+
+        // Bland‑Altman: embed rankingResult, colour points by rank1_assay, with improved CI handling
+        async function updateBlandAltman() {
+            if (!rankingResult) return;
+            const refAssay = refSelect.value;
+            const primaryRank = parseInt(primaryRankSelect.value);
+            const showRanks = [];
+            for (let i = 1; i <= 5; i++) {
+                if (showRankCheck[i] && showRankCheck[i].checked) showRanks.push(i);
+            }
+            if (showRanks.length === 0) {
+                alert('Select at least one rank to display as points.');
+                return;
+            }
+            const method = methodSelect.value;
+            const margin = parseFloat(aprioriMarginInput.value) || 0;
+            const showCIs = showCI.checked;
+
+            const rankingJson = JSON.stringify(rankingResult).replace(/\\/g, '\\\\').replace(/`/g, '\\`');
+            const primaryRankCol = `rank${primaryRank}_Cq`;
+            const allRankCols = showRanks.map(r => `rank${r}_Cq`);
+            const script = `
+                library(data.table)
+                library(jsonlite)
+                ranking_json <- '${rankingJson}'
+                dt <- as.data.table(fromJSON(ranking_json))
+                ref_col <- "${refAssay}"
+                primary_rank_col <- "${primaryRankCol}"
+                all_rank_cols <- c(${allRankCols.map(c => `"${c}"`).join(',')})
+                ranks <- c(${showRanks.join(',')})
+                if (!"rank1_assay" %in% names(dt)) stop("rank1_assay column missing")
+                
+                # Compute BA statistics for primary rank
+                valid_primary <- !is.na(dt[[ref_col]]) & !is.na(dt[[primary_rank_col]]) & dt[[primary_rank_col]] < 40
+                if (sum(valid_primary) < 2) {
+                    result <- list(error = "Insufficient pairs for primary rank")
+                } else {
+                    x_primary <- dt[[ref_col]][valid_primary]
+                    y_primary <- dt[[primary_rank_col]][valid_primary]
+                    diff_primary <- x_primary - y_primary
+                    mean_primary <- (x_primary + y_primary) / 2
+                    n <- length(diff_primary)
+                    
+                    if ("${method}" == "parametric") {
+                        bias <- mean(diff_primary)
+                        sd_diff <- sd(diff_primary)
+                        loa_up <- bias + 1.96 * sd_diff
+                        loa_lo <- bias - 1.96 * sd_diff
+                        se_bias <- sd_diff / sqrt(n)
+                        t_crit <- qt(0.975, n-1)
+                        bias_ci_low <- bias - t_crit * se_bias
+                        bias_ci_high <- bias + t_crit * se_bias
+                        se_loa <- sqrt(3 * sd_diff^2 / n)
+                        loa_up_ci_low <- loa_up - t_crit * se_loa
+                        loa_up_ci_high <- loa_up + t_crit * se_loa
+                        loa_lo_ci_low <- loa_lo - t_crit * se_loa
+                        loa_lo_ci_high <- loa_lo + t_crit * se_loa
+                    } else if ("${method}" == "nonparametric") {
+                        bias <- median(diff_primary)
+                        loa_up <- quantile(diff_primary, 0.975)
+                        loa_lo <- quantile(diff_primary, 0.025)
+                        set.seed(42)
+                        B <- 300
+                        boot_bias <- boot_up <- boot_lo <- numeric(B)
+                        for (b in 1:B) {
+                            s <- sample(diff_primary, replace = TRUE)
+                            boot_bias[b] <- median(s)
+                            boot_up[b] <- quantile(s, 0.975)
+                            boot_lo[b] <- quantile(s, 0.025)
+                        }
+                        bias_ci_low <- quantile(boot_bias, 0.025)
+                        bias_ci_high <- quantile(boot_bias, 0.975)
+                        loa_up_ci_low <- quantile(boot_up, 0.025)
+                        loa_up_ci_high <- quantile(boot_up, 0.975)
+                        loa_lo_ci_low <- quantile(boot_lo, 0.025)
+                        loa_lo_ci_high <- quantile(boot_lo, 0.975)
+                    } else {
+                        bias <- median(diff_primary)
+                        mad_val <- median(abs(diff_primary - bias))
+                        loa_up <- bias + 1.96 * mad_val
+                        loa_lo <- bias - 1.96 * mad_val
+                        set.seed(42)
+                        B <- 300
+                        boot_bias <- boot_up <- boot_lo <- numeric(B)
+                        for (b in 1:B) {
+                            s <- sample(diff_primary, replace = TRUE)
+                            med <- median(s)
+                            mad_i <- median(abs(s - med))
+                            boot_bias[b] <- med
+                            boot_up[b] <- med + 1.96 * mad_i
+                            boot_lo[b] <- med - 1.96 * mad_i
+                        }
+                        bias_ci_low <- quantile(boot_bias, 0.025)
+                        bias_ci_high <- quantile(boot_bias, 0.975)
+                        loa_up_ci_low <- quantile(boot_up, 0.025)
+                        loa_up_ci_high <- quantile(boot_up, 0.975)
+                        loa_lo_ci_low <- quantile(boot_lo, 0.025)
+                        loa_lo_ci_high <- quantile(boot_lo, 0.975)
+                    }
+                    
+                    # Collect overlay points as three vectors (x, y, rank1_assay)
+                    all_x <- numeric(0)
+                    all_y <- numeric(0)
+                    all_assay <- character(0)
+                    for (i in seq_along(all_rank_cols)) {
+                        rank_col <- all_rank_cols[i]
+                        valid <- !is.na(dt[[ref_col]]) & !is.na(dt[[rank_col]]) & dt[[rank_col]] < 40
+                        if (sum(valid) > 0) {
+                            all_x <- c(all_x, (dt[[ref_col]][valid] + dt[[rank_col]][valid]) / 2)
+                            all_y <- c(all_y, dt[[ref_col]][valid] - dt[[rank_col]][valid])
+                            all_assay <- c(all_assay, dt[["rank1_assay"]][valid])
+                        }
+                    }
+                    
+                    result <- list(
+                        primary = list(
+                            bias = bias,
+                            loa_upper = loa_up,
+                            loa_lower = loa_lo,
+                            bias_ci_low = bias_ci_low,
+                            bias_ci_high = bias_ci_high,
+                            loa_up_ci_low = loa_up_ci_low,
+                            loa_up_ci_high = loa_up_ci_high,
+                            loa_lo_ci_low = loa_lo_ci_low,
+                            loa_lo_ci_high = loa_lo_ci_high,
+                            mean_vals = mean_primary,
+                            diff_vals = diff_primary
+                        ),
+                        overlay = list(
+                            x = all_x,
+                            y = all_y,
+                            rank1_assay = all_assay
+                        )
+                    )
+                }
+                toJSON(result, auto_unbox = TRUE, digits = 8)
+            `;
+            try {
+                const statsRes = await webR.evalR(script);
+                const statsJson = await statsRes.toString();
+                const result = JSON.parse(statsJson);
+                if (result.error) {
+                    alert(result.error);
+                    return;
+                }
+                const primary = result.primary;
+                const overlay = result.overlay;
+                
+                // Group points by rank1_assay
+                const grouped = new Map();
+                if (overlay.x && overlay.x.length) {
+                    for (let i = 0; i < overlay.x.length; i++) {
+                        const assay = overlay.rank1_assay[i];
+                        if (!grouped.has(assay)) grouped.set(assay, {x:[], y:[]});
+                        grouped.get(assay).x.push(overlay.x[i]);
+                        grouped.get(assay).y.push(overlay.y[i]);
+                    }
+                }
+                
+                // Colourblind-friendly palette
+                const palette = [
+                    '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b',
+                    '#e377c2', '#7f7f7f', '#bcbd22', '#17becf', '#f4a261', '#e9c46a'
+                ];
+                let colorIdx = 0;
+                const colorMap = new Map();
+                const traces = [];
+                for (const [assay, pts] of grouped.entries()) {
+                    if (!colorMap.has(assay)) colorMap.set(assay, palette[colorIdx % palette.length]);
+                    colorIdx++;
+                    traces.push({
+                        x: pts.x,
+                        y: pts.y,
+                        type: 'scatter',
+                        mode: 'markers',
+                        marker: { color: colorMap.get(assay), size: 9, opacity: 0.8 },
+                        name: assay,
+                        showlegend: true,
+                        legendgroup: assay
+                    });
+                }
+                
+                // Determine y-axis range for dynamic zone labels
+                const allY = overlay.y || [];
+                const yMinData = Math.min(...allY, primary.bias, primary.loa_upper, primary.loa_lower);
+                const yMaxData = Math.max(...allY, primary.bias, primary.loa_upper, primary.loa_lower);
+                const yRange = [Math.min(yMinData, -20), Math.max(yMaxData, 20)];
+                
+                const xRange = [Math.min(...primary.mean_vals, 20), Math.max(...primary.mean_vals, 42)];
+                const lineColorBias = 'blue';
+                const lineColorLoA = 'red';
+                const lineColorApr = 'green';
+                
+                // Bias line
+                if (showBias.checked) {
+                    traces.push({
+                        x: xRange, y: [primary.bias, primary.bias],
+                        mode: 'lines', line: { color: lineColorBias, width: 2, dash: 'solid' },
+                        name: `Bias = ${primary.bias.toFixed(3)}`, showlegend: true
+                    });
+                    if (showCIs && primary.bias_ci_low !== undefined) {
+                        traces.push({ x: xRange, y: [primary.bias_ci_low, primary.bias_ci_low], mode: 'lines', line: { color: lineColorBias, width: 1, dash: 'dot' }, showlegend: false });
+                        traces.push({ x: xRange, y: [primary.bias_ci_high, primary.bias_ci_high], mode: 'lines', line: { color: lineColorBias, width: 1, dash: 'dot' }, showlegend: false });
+                    }
+                }
+                // Upper LoA
+                if (showUpperLoA.checked) {
+                    traces.push({
+                        x: xRange, y: [primary.loa_upper, primary.loa_upper],
+                        mode: 'lines', line: { color: lineColorLoA, width: 2, dash: 'dash' },
+                        name: `Upper LoA = ${primary.loa_upper.toFixed(3)}`, showlegend: true
+                    });
+                    if (showCIs && primary.loa_up_ci_low !== undefined) {
+                        traces.push({ x: xRange, y: [primary.loa_up_ci_low, primary.loa_up_ci_low], mode: 'lines', line: { color: lineColorLoA, width: 1, dash: 'dot' }, showlegend: false });
+                        traces.push({ x: xRange, y: [primary.loa_up_ci_high, primary.loa_up_ci_high], mode: 'lines', line: { color: lineColorLoA, width: 1, dash: 'dot' }, showlegend: false });
+                    }
+                }
+                // Lower LoA
+                if (showLowerLoA.checked) {
+                    traces.push({
+                        x: xRange, y: [primary.loa_lower, primary.loa_lower],
+                        mode: 'lines', line: { color: lineColorLoA, width: 2, dash: 'dash' },
+                        name: `Lower LoA = ${primary.loa_lower.toFixed(3)}`, showlegend: true
+                    });
+                    if (showCIs && primary.loa_lo_ci_low !== undefined) {
+                        traces.push({ x: xRange, y: [primary.loa_lo_ci_low, primary.loa_lo_ci_low], mode: 'lines', line: { color: lineColorLoA, width: 1, dash: 'dot' }, showlegend: false });
+                        traces.push({ x: xRange, y: [primary.loa_lo_ci_high, primary.loa_lo_ci_high], mode: 'lines', line: { color: lineColorLoA, width: 1, dash: 'dot' }, showlegend: false });
+                    }
+                }
+                // A priori limits
+                if (showUpperApriori.checked) {
+                    traces.push({ x: xRange, y: [primary.bias + margin, primary.bias + margin], mode: 'lines', line: { color: lineColorApr, width: 1.5, dash: 'solid' }, name: `Upper a priori = ${(primary.bias + margin).toFixed(3)}`, showlegend: true });
+                }
+                if (showLowerApriori.checked) {
+                    traces.push({ x: xRange, y: [primary.bias - margin, primary.bias - margin], mode: 'lines', line: { color: lineColorApr, width: 1.5, dash: 'solid' }, name: `Lower a priori = ${(primary.bias - margin).toFixed(3)}`, showlegend: true });
+                }
+                if (showZero.checked) {
+                    traces.push({ x: xRange, y: [0,0], mode: 'lines', line: { color: 'black', width: 0.5, dash: 'solid' }, showlegend: false });
+                }
+                
+                const annotations = [];
+                if (showZoneLabels.checked && allY.length > 0) {
+                    annotations.push({
+                        x: 0.98, y: yRange[1] - 1.5,
+                        xref: 'paper', yref: 'y',
+                        text: `${refAssay} > rank`,
+                        showarrow: false, font: { size: 10, color: '#888' },
+                        xanchor: 'right', yanchor: 'bottom'
+                    });
+                    annotations.push({
+                        x: 0.98, y: yRange[0] + 1.5,
+                        xref: 'paper', yref: 'y',
+                        text: `rank > ${refAssay}`,
+                        showarrow: false, font: { size: 10, color: '#888' },
+                        xanchor: 'right', yanchor: 'top'
+                    });
+                    annotations.push({
+                        x: 0.98, y: 0,
+                        xref: 'paper', yref: 'y',
+                        text: `${refAssay} = rank`,
+                        showarrow: false, font: { size: 10, color: '#888' },
+                        xanchor: 'right', yanchor: 'middle'
+                    });
+                }
+                
+                const layout = {
+                    title: `Bland‑Altman: ${refAssay} vs. primary rank ${primaryRank} (points coloured by dominant serotype)`,
+                    xaxis: { title: 'Mean of reference and rank [Cq]', range: [20,42], showgrid: false, zeroline: false },
+                    yaxis: { title: `Difference (${refAssay} - rank) [Cq]`, range: yRange, showgrid: false, zeroline: false },
+                    hovermode: 'closest',
+                    plot_bgcolor: 'white',
+                    legend: { title: { text: 'Dominant serotype' } },
+                    annotations: annotations
+                };
+                Plotly.newPlot('baPlot', traces, layout);
+                
+                // Stats table with CIs
+                const biasCI = showCIs ? `(95% CI: ${primary.bias_ci_low.toFixed(3)} – ${primary.bias_ci_high.toFixed(3)})` : '';
+                const upperLoACI = showCIs ? `(95% CI: ${primary.loa_up_ci_low.toFixed(3)} – ${primary.loa_up_ci_high.toFixed(3)})` : '';
+                const lowerLoACI = showCIs ? `(95% CI: ${primary.loa_lo_ci_low.toFixed(3)} – ${primary.loa_lo_ci_high.toFixed(3)})` : '';
+                statsTableBody.innerHTML = `
+                    <tr><td>Bias</td><td>${primary.bias.toFixed(3)} ${biasCI}</td></tr>
+                    <tr><td>Upper LoA</td><td>${primary.loa_upper.toFixed(3)} ${upperLoACI}</td></tr>
+                    <tr><td>Lower LoA</td><td>${primary.loa_lower.toFixed(3)} ${lowerLoACI}</td></tr>
+                    <tr><td>Number of pairs (primary rank)</td><td>${primary.mean_vals.length}</td></tr>
+                `;
+            } catch (err) {
+                console.error(err);
+                alert('BA calculation failed: ' + err.message);
+            }
+        }
+        
+        // Download ranked CSV
+        downloadBtn.addEventListener('click', () => {
+            if (!rankingResult) return;
+            const columns = Object.keys(rankingResult[0]);
+            const csvRows = [];
+            csvRows.push(columns.join(','));
+            for (const row of rankingResult) {
+                const values = columns.map(col => {
+                    let val = row[col];
+                    if (val === null || val === undefined) val = '';
+                    if (typeof val === 'string' && (val.includes(',') || val.includes('"'))) {
+                        val = '"' + val.replace(/"/g, '""') + '"';
+                    }
+                    return val;
+                });
+                csvRows.push(values.join(','));
+            }
+            const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.href = url;
+            link.setAttribute('download', 'ranked_serotypes.csv');
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        });
+        
+        runRankingBtn.addEventListener('click', runRanking);
+        const controls = [refSelect, primaryRankSelect, methodSelect, aprioriMarginInput, showBias, showUpperLoA, showLowerLoA, showUpperApriori, showLowerApriori, showCI, showZero, showZoneLabels];
+        controls.forEach(ctrl => ctrl.addEventListener('change', () => { if (rankingResult) updateBlandAltman(); }));
+        for (let i=1; i<=5; i++) {
+            if (showRankCheck[i]) showRankCheck[i].addEventListener('change', () => { if (rankingResult) updateBlandAltman(); });
+        }
+    </script>
+</body>
+</html>
