@@ -34,7 +34,7 @@ We distinguish between two types of agreement plots: the <i>population-specific 
 ### serotyping agreement plot
 ##### [Text].
 
-### Agreement indices
+### agreement indices
 Agreement indices can be used to complement agreement plot and guide interpretation. Nevertheless, it's important to note that indices can never capture all the information displayed by an agreement plot. So at best, agreement indices can be used as complementary tool but not as replacement of agreement plots.
 
 A comprehensive discussion of indices is not within the scope of this text, therefore discussion is limited to indices deemed useful for the current analysis.
@@ -52,8 +52,8 @@ When two genetic markers exhibit poor agreement in binar classification due to o
 
 [Text].
 
-## Produce an Agreement plot with your own data!
-<i>Upload your data as CSV file and create your own Agreement plots.</i>
+## Produce an agreement plot with your own data!
+<i>Upload your data as CSV file and create your own agreement plots.</i>
 
 [population-specific agreement plot](https://wmiellet.github.io/data_upload4.html).
 
