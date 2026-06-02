@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>LinRegPCR – WebR Efficiency Analysis</title>
+  <title>LinRegPCR – WebR (data.table)</title>
   <style>
     body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; }
     button, select, input { margin: 0.3rem; }
@@ -11,7 +11,7 @@
   </style>
 </head>
 <body>
-  <h2>LinRegPCR Efficiency (Ruijter original method) v0.6 </h2>
+  <h2>LinRegPCR Efficiency – Ruijter method (with data.table input) V0.7 </h2>
 
   <label>Upload CSV/TSV file:</label><br>
   <input type="file" id="csvFile" accept=".csv,.tsv,.txt"><br>
@@ -35,6 +35,13 @@
 
     const webR = new WebR();
     await webR.init();
+
+    // Ensure data.table is installed (only first visit)
+    await webR.evalR(`
+      if (!requireNamespace("data.table", quietly = TRUE)) {
+        webr::install("data.table")
+      }
+    `);
 
     const fileInput   = document.getElementById('csvFile');
     const wellSelect  = document.getElementById('wellSelect');
@@ -77,9 +84,10 @@
       try {
         await webR.FS.writeFile({ path: '/data.csv', data: csvContent });
 
-        // ---------- R code (base R only, jsonlite is pre‑installed) ----------
+        // ----- R script (data.table + base R only) -----
         const rCode = `
-          library(jsonlite)   # already available in WebR
+          library(data.table)
+          library(jsonlite)
 
           sg5_d2 <- function(y) {
             coef <- c(2, -1, -2, -1, 2) / 7
@@ -213,7 +221,7 @@
             return(best_result)
           }
 
-          # Your original plotter (base R subsetting)
+          # Your original plotter – works with both data.frame and data.table
           plotter <- function(data, well){
             res <- linreg_ruijter4_final(data$Cycle, data[, eval(as.name(noquote(well)))])
             png("plot.png", width = 600, height = 500)
@@ -229,11 +237,9 @@
             return(res)
           }
 
-          # Outer tryCatch – read with base R read.table (auto‑detect separator)
+          # ----- Read CSV as data.table, run analysis with error capture -----
           safe_result <- tryCatch({
-            first_line <- readLines("data.csv", n = 1)
-            sep <- if (grepl("\t", first_line)) "\t" else ","
-            data <- read.table("data.csv", header = TRUE, sep = sep)
+            data <- fread("data.csv")   # returns a data.table, auto‑detects sep
             plotter(data, "${well}")
           }, error = function(e) {
             list(
