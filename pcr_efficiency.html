@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>LinRegPCR – WebR Efficiency Analysis</title>
+  <title>LinRegPCR – WebR Efficiency Analysis v0.3</title>
   <style>
     body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; }
     button, select, input { margin: 0.3rem; }
@@ -11,7 +11,7 @@
   </style>
 </head>
 <body>
-  <h2>LinRegPCR Efficiency (adapted from Ruijter original method) v0.2 </h2>
+  <h2>LinRegPCR Efficiency (Ruijter original method) v0.3</h2>
 
   <label>Upload CSV/TSV file:</label><br>
   <input type="file" id="csvFile" accept=".csv,.tsv,.txt"><br>
@@ -33,11 +33,9 @@
   <script type="module">
     import { WebR } from 'https://webr.r-wasm.org/latest/webr.mjs';
 
-    // ------------------- 1. Start webR -------------------
     const webR = new WebR();
     await webR.init();
 
-    // ------------------- 2. DOM elements -------------------
     const fileInput   = document.getElementById('csvFile');
     const wellSelect  = document.getElementById('wellSelect');
     const runBtn      = document.getElementById('runBtn');
@@ -46,18 +44,15 @@
 
     let csvContent = '';
 
-    // ------------------- 3. File upload → populate well list -------------------
     fileInput.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
       const reader = new FileReader();
       reader.onload = async (ev) => {
         csvContent = ev.target.result;
-        // Detect separator (tab or comma)
         const sep = csvContent.includes('\t') ? '\t' : ',';
         const firstLine = csvContent.split('\n')[0];
         const headers = firstLine.split(sep).map(h => h.trim().replace(/"/g, ''));
-        // Populate dropdown (skip first column, assumed to be "Cycle")
         wellSelect.innerHTML = '';
         for (let i = 1; i < headers.length; i++) {
           const opt = document.createElement('option');
@@ -71,7 +66,6 @@
       reader.readAsText(file);
     });
 
-    // ------------------- 4. Run analysis -------------------
     runBtn.addEventListener('click', async () => {
       const well = wellSelect.value;
       if (!well || !csvContent) return;
@@ -81,11 +75,11 @@
       plotImage.src = '';
 
       try {
-        // Write the file to the virtual filesystem
         await webR.FS.writeFile({ path: '/data.csv', data: csvContent });
 
-        // The complete R script (your original linreg_ruijter4_final function)
+        // ---------- Complete R code with robust error handling ----------
         const rCode = `
+          # 5-point Savitzky-Golay 2nd derivative
           sg5_d2 <- function(y) {
             coef <- c(2, -1, -2, -1, 2) / 7
             n <- length(y)
@@ -94,6 +88,7 @@
             d2
           }
 
+          # Original LinRegPCR function (unchanged)
           linreg_ruijter4_final <- function(cycle, F_raw, tol = 1e-6) {
             early5 <- median(F_raw[1:min(5, length(F_raw))])
             if ((max(F_raw) - min(F_raw)) < 0.1 * early5) {
@@ -218,6 +213,7 @@
             return(best_result)
           }
 
+          # Plotter function (returns only the result list, plot saved separately)
           plotter <- function(data, well){
             res <- linreg_ruijter4_final(data$Cycle, data[, well])
             png("plot.png", width = 600, height = 500)
@@ -233,39 +229,69 @@
             return(res)
           }
 
-          # Read the file: auto-detect separator (tab or comma)
+          # ---------- Read file & run with tryCatch ----------
           first_line <- readLines("data.csv", n = 1)
           sep <- if (grepl("\t", first_line)) "\t" else ","
           data <- read.table("data.csv", header = TRUE, sep = sep)
-          res <- plotter(data, "${well}")
+
+          # Wrap in tryCatch so errors become a list with an "error" field
+          result_list <- tryCatch(
+            plotter(data, "${well}"),
+            error = function(e) list(
+              baseline   = NA,
+              background = NA,
+              F_corr     = rep(NA, nrow(data)),
+              SDM_initial = NA, SDM_final = NA,
+              WoL_cycles = NA, window_width = NA,
+              slope      = NA,
+              E          = NA,
+              Eff_pct    = NA,
+              CV_slope   = NA,
+              R_squared  = NA,
+              converged  = FALSE,
+              error      = conditionMessage(e)
+            )
+          )
+
+          # If no error, a plot.png already exists; otherwise we may not have one
+          if (!is.null(result_list$error)) {
+            # Create a blank placeholder plot
+            png("plot.png", width = 600, height = 500)
+            plot.new()
+            text(0.5,0.5, paste("Error:", result_list$error))
+            dev.off()
+          }
+
           plot_raw <- readBin("plot.png", "raw", file.info("plot.png")$size)
-          list(plot = plot_raw, result = res)
+          list(plot = plot_raw, result = result_list)
         `;
 
-        // ---- Evaluate the R code and extract results ----
         const output = await webR.evalR(rCode);
 
-        // Get the 'result' element (a list in R) and convert it to a plain JS object
+        // Extract result list
         const resultRObj = await output.get('result');
         const resultJS   = await resultRObj.toJs();
 
-        // Get the 'plot' element (raw vector) and convert to Uint8Array
+        // Extract plot
         const plotRObj   = await output.get('plot');
         const plotArray  = await plotRObj.toArray();  // Uint8Array
 
-        // Build the result text
-        let txt = `Efficiency (E): ${resultJS.E.toFixed(4)}   (${resultJS.Eff_pct.toFixed(2)} %)\n`;
-        txt += `Window of Linearity: cycles ${resultJS.WoL_cycles.join(', ')} (width ${resultJS.window_width})\n`;
-        txt += `SDM cycle: ${resultJS.SDM_final}\n`;
-        txt += `Baseline (internal):  ${resultJS.baseline.toFixed(2)}\n`;
-        txt += `Background (robust):  ${resultJS.background.toFixed(2)}\n`;
-        txt += `Slope: ${resultJS.slope.toFixed(6)}\n`;
-        txt += `R²: ${resultJS.R_squared.toFixed(4)}\n`;
-        txt += `CV of slope: ${resultJS.CV_slope.toFixed(6)}\n`;
-        txt += `Converged: ${resultJS.converged}`;
-        resultText.textContent = txt;
+        // Show error if present
+        if (resultJS.error) {
+          resultText.textContent = '⚠️  LinRegPCR failed for this well:\n' + resultJS.error;
+        } else {
+          let txt = `Efficiency (E): ${resultJS.E.toFixed(4)}   (${resultJS.Eff_pct.toFixed(2)} %)\n`;
+          txt += `Window of Linearity: cycles ${resultJS.WoL_cycles.join(', ')} (width ${resultJS.window_width})\n`;
+          txt += `SDM cycle: ${resultJS.SDM_final}\n`;
+          txt += `Baseline (internal):  ${resultJS.baseline.toFixed(2)}\n`;
+          txt += `Background (robust):  ${resultJS.background.toFixed(2)}\n`;
+          txt += `Slope: ${resultJS.slope.toFixed(6)}\n`;
+          txt += `R²: ${resultJS.R_squared.toFixed(4)}\n`;
+          txt += `CV of slope: ${resultJS.CV_slope.toFixed(6)}\n`;
+          txt += `Converged: ${resultJS.converged}`;
+          resultText.textContent = txt;
+        }
 
-        // Show the plot
         const blob = new Blob([plotArray], { type: 'image/png' });
         plotImage.src = URL.createObjectURL(blob);
       } catch (err) {
