@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>LinRegPCR – WebR (data.table)</title>
+  <title>LinRegPCR – WebR (data.table, file‑based)</title>
   <style>
     body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; }
     button, select, input { margin: 0.3rem; }
@@ -11,7 +11,7 @@
   </style>
 </head>
 <body>
-  <h2>LinRegPCR Efficiency – Ruijter method (with data.table input) V0.7 </h2>
+  <h2>LinRegPCR Efficiency – Ruijter method (data.table) v0.8 </h2>
 
   <label>Upload CSV/TSV file:</label><br>
   <input type="file" id="csvFile" accept=".csv,.tsv,.txt"><br>
@@ -36,10 +36,163 @@
     const webR = new WebR();
     await webR.init();
 
-    // Ensure data.table is installed (only first visit)
+    // ------ Ensure data.table is installed (once) ------
     await webR.evalR(`
       if (!requireNamespace("data.table", quietly = TRUE)) {
         webr::install("data.table")
+      }
+    `);
+
+    // ------ Pre‑define LinRegPCR functions globally in R ------
+    await webR.evalR(`
+      library(data.table)
+      library(jsonlite)
+
+      sg5_d2 <- function(y) {
+        coef <- c(2, -1, -2, -1, 2) / 7
+        n <- length(y)
+        d2 <- rep(NA_real_, n)
+        for (i in 3:(n - 2)) d2[i] <- sum(coef * y[(i - 2):(i + 2)])
+        d2
+      }
+
+      linreg_ruijter4_final <- function(cycle, F_raw, tol = 1e-6) {
+        early5 <- median(F_raw[1:min(5, length(F_raw))])
+        if ((max(F_raw) - min(F_raw)) < 0.1 * early5) {
+          return(list(
+            baseline   = early5,
+            background = early5,
+            F_corr     = F_raw - early5,
+            SDM_initial = NA_real_, SDM_final = NA_real_,
+            WoL_cycles = NA_real_, window_width = NA_integer_,
+            slope      = NA_real_,
+            E          = 1.0,
+            Eff_pct    = 0,
+            CV_slope   = NA_real_,
+            R_squared  = NA_real_,
+            converged  = FALSE
+          ))
+        }
+
+        B_init <- min(F_raw)
+        F_corr_init <- F_raw - B_init
+
+        pos <- F_corr_init[F_corr_init > 0]
+        if (length(pos) == 0 || max(F_corr_init) < 7 * min(pos)) stop("No amplification")
+
+        d2_init <- sg5_d2(F_corr_init)
+        SDM_init <- which.max(d2_init)
+        if (is.na(SDM_init) || SDM_init < 5) stop("SDM too early")
+
+        widths_to_test <- c(4L, 6L)
+        best_overall_CV <- Inf
+        best_result <- NULL
+        bg_median <- median(F_raw[1:min(5, length(F_raw))])
+
+        for (width in widths_to_test) {
+          start <- SDM_init - width
+          if (start < 1) next
+
+          WoL_tentative <- start:(SDM_init - 1)
+
+          slope_diff_fn <- function(Bcur) {
+            F_win <- F_raw[WoL_tentative] - Bcur
+            if (any(F_win <= 0)) return(NA)
+            lnF <- log(F_win)
+            half <- width %/% 2L
+            cyc <- cycle[WoL_tentative]
+            fit_low <- lm(lnF[1:half] ~ cyc[1:half])
+            fit_upp <- lm(lnF[(half + 1):width] ~ cyc[(half + 1):width])
+            coef(fit_upp)[2] - coef(fit_low)[2]
+          }
+
+          Bcur <- B_init
+          best_diff <- Inf
+          best_B <- Bcur
+          converged <- FALSE
+          B_found <- NULL
+
+          for (iter in 1:100) {
+            d <- slope_diff_fn(Bcur)
+            if (is.na(d)) break
+            ad <- abs(d)
+            if (ad < best_diff) { best_diff <- ad; best_B <- Bcur }
+            if (ad < tol) { B_found <- Bcur; converged <- TRUE; break }
+            if (d > tol) { Bcur <- Bcur * 1.001 } else { Bcur <- Bcur * 0.999 }
+          }
+          if (!converged && best_diff < Inf) { B_found <- best_B; converged <- FALSE }
+          if (is.null(B_found)) next
+
+          F_corr <- F_raw - B_found
+
+          d2_final <- sg5_d2(F_corr)
+          SDM_final <- which.max(d2_final)
+          if (is.na(SDM_final) || SDM_final < 5) next
+
+          best_CV <- Inf
+          best_WoL <- NULL
+          best_fit <- NULL
+          for (end in (SDM_final - 1):width) {
+            start_w <- end - width + 1
+            if (start_w < 1) break
+            F_win <- F_corr[start_w:end]
+            if (any(F_win <= 0)) next
+            lnF <- log(F_win)
+            cyc_win <- cycle[start_w:end]
+            fit <- lm(lnF ~ cyc_win)
+            s <- summary(fit)
+            coefs <- s$coefficients
+            if (any(is.na(coefs[, "Std. Error"]))) next
+            slope <- coefs[2, 1]; se <- coefs[2, 2]
+            if (slope == 0) next
+            CV <- se / abs(slope)
+            if (is.na(CV)) next
+            if (CV < best_CV) {
+              best_CV <- CV; best_WoL <- start_w:end; best_fit <- fit; best_summary <- s
+            }
+          }
+          if (is.null(best_WoL)) next
+
+          slope <- coef(best_fit)[2]
+          E <- exp(slope)
+          candidate <- list(
+            baseline     = B_found,
+            background   = bg_median,
+            F_corr       = F_corr,
+            SDM_initial  = SDM_init,
+            SDM_final    = SDM_final,
+            WoL_cycles   = best_WoL,
+            window_width = width,
+            slope        = slope,
+            E            = E,
+            Eff_pct      = (E - 1) * 100,
+            CV_slope     = best_CV,
+            R_squared    = best_summary$r.squared,
+            converged    = converged
+          )
+          if (best_CV < best_overall_CV) {
+            best_overall_CV <- best_CV
+            best_result <- candidate
+          }
+        }
+
+        if (is.null(best_result)) stop("No valid window found for any tested width")
+        return(best_result)
+      }
+
+      plotter <- function(data, well){
+        res <- linreg_ruijter4_final(data$Cycle, data[, eval(as.name(noquote(well)))])
+        png("plot.png", width = 600, height = 500)
+        par(mar = c(4,4,2,1))
+        plot(x = data$Cycle, y = log10(res$F_corr),
+             ylim = c(-2.5, 1.5), xlab = "Cycles", ylab = "log(corrected fluor)", xaxt = "n")
+        axis(side = 1, at = seq(0, max(data$Cycle), by = 5))
+        abline(h = log10(res$baseline), lty = "dashed", col = "blue")
+        abline(v = res$WoL_cycles[1], lty = "solid", col = "blue")
+        abline(v = res$WoL_cycles[res$window_width], lty = "solid", col = "blue")
+        abline(v = res$SDM_final, lty = "dotted", col = "orange")
+        dev.off()
+        return(res)
       }
     `);
 
@@ -84,162 +237,13 @@
       try {
         await webR.FS.writeFile({ path: '/data.csv', data: csvContent });
 
-        // ----- R script (data.table + base R only) -----
-        const rCode = `
+        // ------ The tiny R script that reads the CSV, runs the analysis, writes files ------
+        const rRunCode = `
           library(data.table)
           library(jsonlite)
 
-          sg5_d2 <- function(y) {
-            coef <- c(2, -1, -2, -1, 2) / 7
-            n <- length(y)
-            d2 <- rep(NA_real_, n)
-            for (i in 3:(n - 2)) d2[i] <- sum(coef * y[(i - 2):(i + 2)])
-            d2
-          }
-
-          linreg_ruijter4_final <- function(cycle, F_raw, tol = 1e-6) {
-            early5 <- median(F_raw[1:min(5, length(F_raw))])
-            if ((max(F_raw) - min(F_raw)) < 0.1 * early5) {
-              return(list(
-                baseline   = early5,
-                background = early5,
-                F_corr     = F_raw - early5,
-                SDM_initial = NA_real_, SDM_final = NA_real_,
-                WoL_cycles = NA_real_, window_width = NA_integer_,
-                slope      = NA_real_,
-                E          = 1.0,
-                Eff_pct    = 0,
-                CV_slope   = NA_real_,
-                R_squared  = NA_real_,
-                converged  = FALSE
-              ))
-            }
-
-            B_init <- min(F_raw)
-            F_corr_init <- F_raw - B_init
-
-            pos <- F_corr_init[F_corr_init > 0]
-            if (length(pos) == 0 || max(F_corr_init) < 7 * min(pos)) stop("No amplification")
-
-            d2_init <- sg5_d2(F_corr_init)
-            SDM_init <- which.max(d2_init)
-            if (is.na(SDM_init) || SDM_init < 5) stop("SDM too early")
-
-            widths_to_test <- c(4L, 6L)
-            best_overall_CV <- Inf
-            best_result <- NULL
-            bg_median <- median(F_raw[1:min(5, length(F_raw))])
-
-            for (width in widths_to_test) {
-              start <- SDM_init - width
-              if (start < 1) next
-
-              WoL_tentative <- start:(SDM_init - 1)
-
-              slope_diff_fn <- function(Bcur) {
-                F_win <- F_raw[WoL_tentative] - Bcur
-                if (any(F_win <= 0)) return(NA)
-                lnF <- log(F_win)
-                half <- width %/% 2L
-                cyc <- cycle[WoL_tentative]
-                fit_low <- lm(lnF[1:half] ~ cyc[1:half])
-                fit_upp <- lm(lnF[(half + 1):width] ~ cyc[(half + 1):width])
-                coef(fit_upp)[2] - coef(fit_low)[2]
-              }
-
-              Bcur <- B_init
-              best_diff <- Inf
-              best_B <- Bcur
-              converged <- FALSE
-              B_found <- NULL
-
-              for (iter in 1:100) {
-                d <- slope_diff_fn(Bcur)
-                if (is.na(d)) break
-                ad <- abs(d)
-                if (ad < best_diff) { best_diff <- ad; best_B <- Bcur }
-                if (ad < tol) { B_found <- Bcur; converged <- TRUE; break }
-                if (d > tol) { Bcur <- Bcur * 1.001 } else { Bcur <- Bcur * 0.999 }
-              }
-              if (!converged && best_diff < Inf) { B_found <- best_B; converged <- FALSE }
-              if (is.null(B_found)) next
-
-              F_corr <- F_raw - B_found
-
-              d2_final <- sg5_d2(F_corr)
-              SDM_final <- which.max(d2_final)
-              if (is.na(SDM_final) || SDM_final < 5) next
-
-              best_CV <- Inf
-              best_WoL <- NULL
-              best_fit <- NULL
-              for (end in (SDM_final - 1):width) {
-                start_w <- end - width + 1
-                if (start_w < 1) break
-                F_win <- F_corr[start_w:end]
-                if (any(F_win <= 0)) next
-                lnF <- log(F_win)
-                cyc_win <- cycle[start_w:end]
-                fit <- lm(lnF ~ cyc_win)
-                s <- summary(fit)
-                coefs <- s$coefficients
-                if (any(is.na(coefs[, "Std. Error"]))) next
-                slope <- coefs[2, 1]; se <- coefs[2, 2]
-                if (slope == 0) next
-                CV <- se / abs(slope)
-                if (is.na(CV)) next
-                if (CV < best_CV) {
-                  best_CV <- CV; best_WoL <- start_w:end; best_fit <- fit; best_summary <- s
-                }
-              }
-              if (is.null(best_WoL)) next
-
-              slope <- coef(best_fit)[2]
-              E <- exp(slope)
-              candidate <- list(
-                baseline     = B_found,
-                background   = bg_median,
-                F_corr       = F_corr,
-                SDM_initial  = SDM_init,
-                SDM_final    = SDM_final,
-                WoL_cycles   = best_WoL,
-                window_width = width,
-                slope        = slope,
-                E            = E,
-                Eff_pct      = (E - 1) * 100,
-                CV_slope     = best_CV,
-                R_squared    = best_summary$r.squared,
-                converged    = converged
-              )
-              if (best_CV < best_overall_CV) {
-                best_overall_CV <- best_CV
-                best_result <- candidate
-              }
-            }
-
-            if (is.null(best_result)) stop("No valid window found for any tested width")
-            return(best_result)
-          }
-
-          # Your original plotter – works with both data.frame and data.table
-          plotter <- function(data, well){
-            res <- linreg_ruijter4_final(data$Cycle, data[, eval(as.name(noquote(well)))])
-            png("plot.png", width = 600, height = 500)
-            par(mar = c(4,4,2,1))
-            plot(x = data$Cycle, y = log10(res$F_corr),
-                 ylim = c(-2.5, 1.5), xlab = "Cycles", ylab = "log(corrected fluor)", xaxt = "n")
-            axis(side = 1, at = seq(0, max(data$Cycle), by = 5))
-            abline(h = log10(res$baseline), lty = "dashed", col = "blue")
-            abline(v = res$WoL_cycles[1], lty = "solid", col = "blue")
-            abline(v = res$WoL_cycles[res$window_width], lty = "solid", col = "blue")
-            abline(v = res$SDM_final, lty = "dotted", col = "orange")
-            dev.off()
-            return(res)
-          }
-
-          # ----- Read CSV as data.table, run analysis with error capture -----
           safe_result <- tryCatch({
-            data <- fread("data.csv")   # returns a data.table, auto‑detects sep
+            data <- fread("data.csv")
             plotter(data, "${well}")
           }, error = function(e) {
             list(
@@ -259,25 +263,27 @@
           })
 
           if (!is.null(safe_result$error)) {
+            # Create placeholder plot
             png("plot.png", width = 600, height = 500)
             plot.new()
             text(0.5, 0.5, paste("Error:", safe_result$error))
             dev.off()
           }
 
+          # Write result as JSON file – always works, no JS object conversion
           result_json <- toJSON(safe_result, auto_unbox = TRUE, null = "null", na = "null", digits = 10)
-          plot_raw <- readBin("plot.png", "raw", file.info("plot.png")$size)
-          list(plot = plot_raw, result_json = result_json)
+          writeLines(result_json, "result.json")
+          invisible(NULL)
         `;
 
-        const output = await webR.evalR(rCode);
+        // This call may throw if R itself fails, so we catch it
+        await webR.evalR(rRunCode);
 
-        const plotRObj  = await output.get('plot');
-        const plotArray = await plotRObj.toArray();
+        // Now read the files from the virtual filesystem – completely reliable
+        const resultJsonStr = await webR.FS.readFile('/result.json', { encoding: 'utf8' });
+        const resultJS = JSON.parse(resultJsonStr);
 
-        const jsonRObj  = await output.get('result_json');
-        const jsonStr   = (await jsonRObj.toJs())[0];
-        const resultJS = JSON.parse(jsonStr);
+        const plotArray = await webR.FS.readFile('/plot.png');
 
         if (resultJS.error) {
           resultText.textContent = '⚠️  LinRegPCR failed for this well:\n' + resultJS.error;
@@ -297,7 +303,7 @@
         const blob = new Blob([plotArray], { type: 'image/png' });
         plotImage.src = URL.createObjectURL(blob);
       } catch (err) {
-        resultText.textContent = 'JavaScript error: ' + err.message;
+        resultText.textContent = 'Error: ' + err.message;
         console.error(err);
       } finally {
         runBtn.disabled = false;
