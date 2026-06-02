@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>LinRegPCR – Pure JavaScript (fixed NaN bug)</title>
+  <title>LinRegPCR – Full Plot (matching R layout)</title>
   <style>
     body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; }
     button, select, input { margin: 0.3rem; }
@@ -11,7 +11,7 @@
   </style>
 </head>
 <body>
-  <h2>LinRegPCR Efficiency (JavaScript – SDM fixed) v0.18</h2>
+  <h2>LinRegPCR Efficiency (Ruijter method) – Plot matches R layout v0.19</h2>
 
   <label>Upload CSV/TSV file:</label><br>
   <input type="file" id="csvFile" accept=".csv,.tsv,.txt"><br>
@@ -46,14 +46,11 @@
       return d2;
     }
 
-    // Helper: index of maximum, ignoring NaN (returns -1 if all NaN)
     function indexOfMax(arr) {
-      let maxIdx = -1;
-      let maxVal = -Infinity;
+      let maxIdx = -1, maxVal = -Infinity;
       for (let i = 0; i < arr.length; i++) {
         if (!isNaN(arr[i]) && arr[i] > maxVal) {
-          maxVal = arr[i];
-          maxIdx = i;
+          maxVal = arr[i]; maxIdx = i;
         }
       }
       return maxIdx;
@@ -81,7 +78,7 @@
       }
 
       const d2_init = sg5_d2(F_corr_init);
-      let SDM_init = indexOfMax(d2_init);   // 0‑based, ignores NaN
+      let SDM_init = indexOfMax(d2_init);
       if (SDM_init === -1 || SDM_init < 4) throw new Error("SDM too early");
 
       const widths_to_test = [4, 6];
@@ -131,7 +128,7 @@
 
         const F_corr = F_raw.map(v => v - B_found);
         const d2_final = sg5_d2(F_corr);
-        let SDM_final = indexOfMax(d2_final); // 0‑based
+        let SDM_final = indexOfMax(d2_final);
         if (SDM_final === -1 || SDM_final < 4) continue;
 
         let best_CV = Infinity;
@@ -175,7 +172,7 @@
           baseline: B_found,
           background: bg_median,
           F_corr: F_corr,
-          SDM_initial: SDM_init + 1,      // convert to 1‑based for display
+          SDM_initial: SDM_init + 1,   // 1‑based for display
           SDM_final: SDM_final + 1,
           WoL_cycles: best_WoL.map(i => i + 1),
           window_width: width,
@@ -196,7 +193,7 @@
       return best_result;
     }
 
-    // ===================== File handling & UI =====================
+    // ===================== File handling & plot =====================
     const fileInput   = document.getElementById('csvFile');
     const wellSelect  = document.getElementById('wellSelect');
     const runBtn      = document.getElementById('runBtn');
@@ -261,23 +258,24 @@
         txt += `Converged: ${res.converged}`;
         resultText.textContent = txt;
 
-        // ----- Plot -----
+        // ---------- Plot EXACTLY as original R layout ----------
         plotCanvas.style.display = 'block';
         const w = plotCanvas.width, h = plotCanvas.height;
-        ctx.clearRect(0,0,w,h);
+        ctx.clearRect(0, 0, w, h);
+
+        // Margins
         const margin = { top: 30, right: 30, bottom: 50, left: 60 };
         const plotW = w - margin.left - margin.right;
         const plotH = h - margin.top - margin.bottom;
 
-        const safeF = res.F_corr.map(v => v <= 0 ? 1e-15 : v);
-        const logF = safeF.map(v => Math.log10(v));
+        // Fixed axis limits to match R: x 0-45, y -2.5 to 1.5
+        const xMin = 0, xMax = 45;
         const yMin = -2.5, yMax = 1.5;
-        const xMin = 0, xMax = Math.max(...cycles) + 1;
 
         const scaleX = (x) => margin.left + (x - xMin) / (xMax - xMin) * plotW;
         const scaleY = (y) => margin.top + (yMax - y) / (yMax - yMin) * plotH;
 
-        // Axes
+        // Draw box
         ctx.strokeStyle = '#000';
         ctx.beginPath();
         ctx.moveTo(margin.left, margin.top);
@@ -285,35 +283,58 @@
         ctx.lineTo(w - margin.right, h - margin.bottom);
         ctx.stroke();
 
+        // X-axis ticks at EXACT positions 0,5,10,...,45
+        const xTicks = [0,5,10,15,20,25,30,35,40,45];
         ctx.fillStyle = '#000';
         ctx.textAlign = 'center';
-        for (let i = 0; i <= Math.max(...cycles); i += 5) {
-          ctx.fillText(i, scaleX(i), h - margin.bottom + 20);
-        }
+        xTicks.forEach(tick => {
+          const x = scaleX(tick);
+          ctx.beginPath();
+          ctx.moveTo(x, h - margin.bottom);
+          ctx.lineTo(x, h - margin.bottom + 5);
+          ctx.stroke();
+          ctx.fillText(tick, x, h - margin.bottom + 20);
+        });
+
+        // Y-axis labels every 0.5
         ctx.textAlign = 'right';
         for (let y = -2.5; y <= 1.5; y += 0.5) {
-          ctx.fillText(y.toFixed(1), margin.left - 10, scaleY(y) + 4);
+          const yPos = scaleY(y);
+          ctx.fillText(y.toFixed(1), margin.left - 10, yPos + 4);
         }
+
+        // Axis titles
         ctx.textAlign = 'center';
-        ctx.fillText('Cycles', w/2, h - 5);
+        ctx.fillText('Cycles', w / 2, h - 5);
         ctx.save();
-        ctx.translate(15, h/2);
-        ctx.rotate(-Math.PI/2);
+        ctx.translate(15, h / 2);
+        ctx.rotate(-Math.PI / 2);
         ctx.fillText('log(corrected fluor)', 0, 0);
         ctx.restore();
 
-        // Data
+        // Draw log10(F_corr) line, skipping NaN (where F_corr <= 0)
+        const logF = res.F_corr.map(v => v <= 0 ? NaN : Math.log10(v));
         ctx.strokeStyle = 'black';
         ctx.beginPath();
+        let first = true;
         for (let i = 0; i < cycles.length; i++) {
           const x = scaleX(cycles[i]);
-          const y = scaleY(Math.max(yMin, Math.min(yMax, logF[i])));
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
+          const yVal = logF[i];
+          if (isNaN(yVal)) {
+            first = true; // break path
+            continue;
+          }
+          const y = scaleY(Math.max(yMin, Math.min(yMax, yVal)));
+          if (first) {
+            ctx.moveTo(x, y);
+            first = false;
+          } else {
+            ctx.lineTo(x, y);
+          }
         }
         ctx.stroke();
 
-        // Baseline
+        // Baseline: dashed blue horizontal line at log10(baseline)
         const baseY = scaleY(Math.log10(res.baseline));
         ctx.strokeStyle = 'blue';
         ctx.setLineDash([5, 5]);
@@ -323,11 +344,14 @@
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Window of Linearity
+        // Window of Linearity: solid blue vertical lines
         if (res.WoL_cycles.length > 0) {
+          const firstCycle = res.WoL_cycles[0];
+          const lastCycle = res.WoL_cycles[res.WoL_cycles.length - 1];
           ctx.strokeStyle = 'blue';
-          [res.WoL_cycles[0], res.WoL_cycles[res.WoL_cycles.length-1]].forEach(cyc => {
-            const x = scaleX(cyc);
+          ctx.setLineDash([]);
+          [firstCycle, lastCycle].forEach(c => {
+            const x = scaleX(c);
             ctx.beginPath();
             ctx.moveTo(x, margin.top);
             ctx.lineTo(x, h - margin.bottom);
@@ -335,11 +359,11 @@
           });
         }
 
-        // SDM
+        // SDM_final: dotted orange vertical line
         if (!isNaN(res.SDM_final)) {
+          const sdmX = scaleX(res.SDM_final);
           ctx.strokeStyle = 'orange';
           ctx.setLineDash([2, 3]);
-          const sdmX = scaleX(res.SDM_final);
           ctx.beginPath();
           ctx.moveTo(sdmX, margin.top);
           ctx.lineTo(sdmX, h - margin.bottom);
