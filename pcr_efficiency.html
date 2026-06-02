@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>LinRegPCR – Pure JavaScript</title>
+  <title>LinRegPCR – Pure JavaScript (fixed)</title>
   <style>
     body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; }
     button, select, input { margin: 0.3rem; }
@@ -11,7 +11,7 @@
   </style>
 </head>
 <body>
-  <h2>LinRegPCR Efficiency (JavaScript – no R needed) v0.16</h2>
+  <h2>LinRegPCR Efficiency (JavaScript – fixed SDM check) v0.17</h2>
 
   <label>Upload CSV/TSV file:</label><br>
   <input type="file" id="csvFile" accept=".csv,.tsv,.txt"><br>
@@ -68,8 +68,9 @@
       }
 
       const d2_init = sg5_d2(F_corr_init);
-      let SDM_init = d2_init.indexOf(Math.max(...d2_init));
-      if (isNaN(SDM_init) || SDM_init < 5) throw new Error("SDM too early");
+      let SDM_init = d2_init.indexOf(Math.max(...d2_init));  // 0-based index
+      // ---- FIXED: SDM must be at least the 5th cycle (0-based index >= 4) ----
+      if (isNaN(SDM_init) || SDM_init < 4) throw new Error("SDM too early");
 
       const widths_to_test = [4, 6];
       let best_overall_CV = Infinity;
@@ -83,15 +84,13 @@
         const lnF = F_win.map(Math.log);
         const half = Math.floor(WoL_tentative.length / 2);
         const cyc_win = WoL_tentative.map(i => cycle[i]);
-        // simple linear regression for two halves
         function fit(x, y) {
           const n = x.length;
           const sumX = x.reduce((a,b)=>a+b,0);
           const sumY = y.reduce((a,b)=>a+b,0);
           const sumXY = x.reduce((a,b,i)=>a+b*y[i],0);
           const sumXX = x.reduce((a,b)=>a+b*b,0);
-          const slope = (n*sumXY - sumX*sumY) / (n*sumXX - sumX*sumX);
-          return slope;
+          return (n*sumXY - sumX*sumY) / (n*sumXX - sumX*sumX);
         }
         const slope_low = fit(cyc_win.slice(0,half), lnF.slice(0,half));
         const slope_upp = fit(cyc_win.slice(half), lnF.slice(half));
@@ -99,8 +98,8 @@
       }
 
       for (const width of widths_to_test) {
-        const start = SDM_init - width;
-        if (start < 1) continue;
+        const start = SDM_init - width;   // 0-based start index
+        if (start < 0) continue;
         const WoL_tentative = Array.from({length: width}, (_,i) => start + i);
 
         // Baseline refinement
@@ -122,20 +121,20 @@
 
         const F_corr = F_raw.map(v => v - B_found);
         const d2_final = sg5_d2(F_corr);
-        let SDM_final = d2_final.indexOf(Math.max(...d2_final));
-        if (isNaN(SDM_final) || SDM_final < 5) continue;
+        let SDM_final = d2_final.indexOf(Math.max(...d2_final)); // 0-based
+        if (isNaN(SDM_final) || SDM_final < 4) continue; // also require SDM >= 5th cycle
 
         let best_CV = Infinity;
         let best_WoL = null;
         let best_fit = null;
-        for (let end = SDM_final - 1; end >= width; end--) {
+        // Window scan (end is 0-based index of last cycle in window)
+        for (let end = SDM_final - 1; end >= width-1; end--) {
           const start_w = end - width + 1;
-          if (start_w < 1) break;
+          if (start_w < 0) break;
           const F_win = F_corr.slice(start_w, end+1);
           if (F_win.some(v => v <= 0)) continue;
           const lnF = F_win.map(Math.log);
           const cyc_win = cycle.slice(start_w, end+1);
-          // linear regression
           const n_win = cyc_win.length;
           const sumX = cyc_win.reduce((a,b)=>a+b,0);
           const sumY = lnF.reduce((a,b)=>a+b,0);
@@ -167,9 +166,9 @@
           baseline: B_found,
           background: bg_median,
           F_corr: F_corr,
-          SDM_initial: SDM_init,
-          SDM_final: SDM_final,
-          WoL_cycles: best_WoL,
+          SDM_initial: SDM_init + 1,     // convert to 1-based for display
+          SDM_final: SDM_final + 1,
+          WoL_cycles: best_WoL.map(i => i + 1), // convert to 1-based cycle numbers
           window_width: width,
           slope: slope,
           E: E,
@@ -262,13 +261,13 @@
         const plotW = w - margin.left - margin.right;
         const plotH = h - margin.top - margin.bottom;
 
-        // Compute log10(F_corr)
-        const logF = res.F_corr.map(v => Math.log10(v));
-        const xVals = cycles;
+        // Compute log10(F_corr) – F_corr might have zeros/negatives, replace with tiny positive
+        const safeF = res.F_corr.map(v => v <= 0 ? 1e-15 : v);
+        const logF = safeF.map(v => Math.log10(v));
+        const xVals = cycles; // 1..45
         const yMin = -2.5, yMax = 1.5;
         const xMin = 0, xMax = Math.max(...cycles) + 1;
 
-        // Scale functions
         const scaleX = (x) => margin.left + (x - xMin) / (xMax - xMin) * plotW;
         const scaleY = (y) => margin.top + (yMax - y) / (yMax - yMin) * plotH;
 
@@ -280,7 +279,7 @@
         ctx.lineTo(w - margin.right, h - margin.bottom);
         ctx.stroke();
 
-        // X axis labels
+        // Labels
         ctx.fillStyle = '#000';
         ctx.textAlign = 'center';
         for (let i = 0; i <= Math.max(...cycles); i += 5) {
