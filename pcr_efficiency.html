@@ -11,7 +11,7 @@
   </style>
 </head>
 <body>
-  <h2>LinRegPCR Efficiency – Ruijter method (data.table) v0.11</h2>
+  <h2>LinRegPCR Efficiency – Ruijter method (data.table) v0.12</h2>
 
   <label>Upload CSV/TSV file:</label><br>
   <input type="file" id="csvFile" accept=".csv,.tsv,.txt"><br>
@@ -36,14 +36,15 @@
     const webR = new WebR();
     await webR.init();
 
-    // ------ 1. Install data.table if needed ------
+    // ------ 1. Install data.table (returns a string to avoid conversion) ------
     await webR.evalR(`
       if (!requireNamespace("data.table", quietly = TRUE)) {
         webr::install("data.table")
       }
+      "installed"
     `);
 
-    // ------ 2. Pre‑define LinRegPCR functions globally ------
+    // ------ 2. Pre‑define LinRegPCR functions globally (returns "defined") ------
     await webR.evalR(`
       sg5_d2 <- function(y) {
         coef <- c(2, -1, -2, -1, 2) / 7
@@ -191,6 +192,9 @@
         dev.off()
         return(res)
       }
+
+      # Must return a simple string so WebR doesn't crash
+      "defined"
     `);
 
     // ------ 3. DOM elements & file upload ------
@@ -224,7 +228,7 @@
       reader.readAsText(file);
     });
 
-    // ------ 4. Run analysis (returns a simple string) ------
+    // ------ 4. Run analysis (returns a string "ok" or "error") ------
     runBtn.addEventListener('click', async () => {
       const well = wellSelect.value;
       if (!well || !csvContent) return;
@@ -236,7 +240,6 @@
       try {
         await webR.FS.writeFile({ path: '/data.csv', data: csvContent });
 
-        // R script writes result.txt & plot.png, then returns "ok" or "error"
         const rRunCode = `
           library(data.table)
 
@@ -244,7 +247,6 @@
             data <- fread("data.csv")
             res <- plotter(data, "${well}")
 
-            # Build result.txt (key:value, no jsonlite)
             writeLines(c(
               paste0("E:", res$E),
               paste0("Eff_pct:", res$Eff_pct),
@@ -262,7 +264,6 @@
 
             "ok"
           }, error = function(e) {
-            # Placeholder plot for error
             png("plot.png", width = 600, height = 500)
             plot.new()
             text(0.5, 0.5, paste("Error:", conditionMessage(e)))
@@ -286,19 +287,14 @@
             "error"
           })
 
-          # Return the status string – WebR safely converts it
           output_status
         `;
 
-        // Evaluate the R code – we don't even need the return value,
-        // but it must be a string to avoid the conversion error.
         await webR.evalR(rRunCode);
 
-        // Read the generated files
         const resultRaw = await webR.FS.readFile('/result.txt', { encoding: 'utf8' });
         const plotArray = await webR.FS.readFile('/plot.png');
 
-        // Parse the key:value lines
         const lines = resultRaw.split('\n').filter(line => line.trim() !== '');
         const result = {};
         lines.forEach(line => {
@@ -310,7 +306,6 @@
           }
         });
 
-        // Display
         if (result.error && result.error !== 'none') {
           resultText.textContent = '⚠️  LinRegPCR failed for this well:\n' + result.error;
         } else {
