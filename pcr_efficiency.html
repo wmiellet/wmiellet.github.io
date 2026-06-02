@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>LinRegPCR – WebR (data.table, no jsonlite)</title>
+  <title>LinRegPCR – WebR (data.table, no JS conversion)</title>
   <style>
     body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; }
     button, select, input { margin: 0.3rem; }
@@ -11,7 +11,7 @@
   </style>
 </head>
 <body>
-  <h2>LinRegPCR Efficiency – Ruijter method (data.table) v0.9</h2>
+  <h2>LinRegPCR Efficiency – Ruijter method (data.table) v0.10</h2>
 
   <label>Upload CSV/TSV file:</label><br>
   <input type="file" id="csvFile" accept=".csv,.tsv,.txt"><br>
@@ -36,7 +36,7 @@
     const webR = new WebR();
     await webR.init();
 
-    // ------ 1. Install data.table (if missing) ------
+    // ------ 1. Install data.table (only once) ------
     await webR.evalR(`
       if (!requireNamespace("data.table", quietly = TRUE)) {
         webr::install("data.table")
@@ -193,7 +193,7 @@
       }
     `);
 
-    // ------ 3. DOM elements & file upload logic ------
+    // ------ 3. DOM elements & file upload ------
     const fileInput   = document.getElementById('csvFile');
     const wellSelect  = document.getElementById('wellSelect');
     const runBtn      = document.getElementById('runBtn');
@@ -224,7 +224,7 @@
       reader.readAsText(file);
     });
 
-    // ------ 4. Run analysis ------
+    // ------ 4. Run analysis (no R‑to‑JS object conversion) ------
     runBtn.addEventListener('click', async () => {
       const well = wellSelect.value;
       if (!well || !csvContent) return;
@@ -234,76 +234,88 @@
       plotImage.src = '';
 
       try {
-        // Write uploaded file to virtual filesystem
         await webR.FS.writeFile({ path: '/data.csv', data: csvContent });
 
-        // R script that returns a SIMPLE list (all atomic, no complex objects)
+        // R writes two files: plot.png and result.txt
         const rRunCode = `
           library(data.table)
 
-          safe_simple <- tryCatch({
+          safe_result <- tryCatch({
             data <- fread("data.csv")
             res <- plotter(data, "${well}")
-
-            # Return only simple values – no vectors, no raw data
-            list(
-              E          = res$E,
-              Eff_pct    = res$Eff_pct,
-              slope      = res$slope,
-              baseline   = res$baseline,
-              background = res$background,
-              SDM_final  = res$SDM_final,
-              WoL_cycles = paste(res$WoL_cycles, collapse = ", "),
-              window_width = res$window_width,
-              CV_slope   = res$CV_slope,
-              R_squared  = res$R_squared,
-              converged  = res$converged,
-              error      = NULL
-            )
+            # Write result.txt (no jsonlite needed)
+            writeLines(c(
+              paste0("E:", res$E),
+              paste0("Eff_pct:", res$Eff_pct),
+              paste0("slope:", res$slope),
+              paste0("baseline:", res$baseline),
+              paste0("background:", res$background),
+              paste0("SDM_final:", res$SDM_final),
+              paste0("WoL_cycles:", paste(res$WoL_cycles, collapse = ",")),
+              paste0("window_width:", res$window_width),
+              paste0("CV_slope:", res$CV_slope),
+              paste0("R_squared:", res$R_squared),
+              paste0("converged:", res$converged),
+              "error:none"
+            ), "result.txt")
           }, error = function(e) {
-            # Create a placeholder plot for error cases
+            # Create placeholder plot
             png("plot.png", width = 600, height = 500)
             plot.new()
             text(0.5, 0.5, paste("Error:", conditionMessage(e)))
             dev.off()
 
-            list(
-              E          = NA_real_,
-              Eff_pct    = NA_real_,
-              slope      = NA_real_,
-              baseline   = NA_real_,
-              background = NA_real_,
-              SDM_final  = NA_real_,
-              WoL_cycles = "",
-              window_width = NA_integer_,
-              CV_slope   = NA_real_,
-              R_squared  = NA_real_,
-              converged  = FALSE,
-              error      = conditionMessage(e)
-            )
+            # Write error info
+            writeLines(c(
+              "E:NA",
+              "Eff_pct:NA",
+              "slope:NA",
+              "baseline:NA",
+              "background:NA",
+              "SDM_final:NA",
+              "WoL_cycles:",
+              "window_width:NA",
+              "CV_slope:NA",
+              "R_squared:NA",
+              "converged:FALSE",
+              paste0("error:", conditionMessage(e))
+            ), "result.txt")
           })
 
-          safe_simple
+          invisible(NULL)
         `;
 
-        // This returns the simple list directly – safe conversion
-        const output = await webR.evalR(rRunCode);
-        const result = await output.toJs();
+        // This call never returns an R object we need to convert
+        await webR.evalR(rRunCode);
 
-        // Read the plot file (always exists after the R call)
+        // Read files directly from the virtual filesystem
+        const resultRaw = await webR.FS.readFile('/result.txt', { encoding: 'utf8' });
         const plotArray = await webR.FS.readFile('/plot.png');
 
-        if (result.error) {
+        // Parse result.txt into an object
+        const lines = resultRaw.split('\n').filter(line => line.trim() !== '');
+        const result = {};
+        lines.forEach(line => {
+          const idx = line.indexOf(':');
+          if (idx > 0) {
+            const key = line.substring(0, idx).trim();
+            const val = line.substring(idx + 1).trim();
+            result[key] = val;
+          }
+        });
+
+        // Display
+        if (result.error && result.error !== 'none') {
           resultText.textContent = '⚠️  LinRegPCR failed for this well:\n' + result.error;
         } else {
-          let txt = `Efficiency (E): ${result.E.toFixed(4)}   (${result.Eff_pct.toFixed(2)} %)\n`;
+          let txt = `Efficiency (E): ${parseFloat(result.E).toFixed(4)}   (${parseFloat(result.Eff_pct).toFixed(2)} %)\n`;
           txt += `Window of Linearity: cycles ${result.WoL_cycles} (width ${result.window_width})\n`;
           txt += `SDM cycle: ${result.SDM_final}\n`;
-          txt += `Baseline (internal):  ${result.baseline.toFixed(2)}\n`;
-          txt += `Background (robust):  ${result.background.toFixed(2)}\n`;
-          txt += `Slope: ${result.slope.toFixed(6)}\n`;
-          txt += `R²: ${result.R_squared.toFixed(4)}\n`;
-          txt += `CV of slope: ${result.CV_slope.toFixed(6)}\n`;
+          txt += `Baseline (internal):  ${parseFloat(result.baseline).toFixed(2)}\n`;
+          txt += `Background (robust):  ${parseFloat(result.background).toFixed(2)}\n`;
+          txt += `Slope: ${parseFloat(result.slope).toFixed(6)}\n`;
+          txt += `R²: ${parseFloat(result.R_squared).toFixed(4)}\n`;
+          txt += `CV of slope: ${parseFloat(result.CV_slope).toFixed(6)}\n`;
           txt += `Converged: ${result.converged}`;
           resultText.textContent = txt;
         }
