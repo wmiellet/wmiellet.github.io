@@ -31,44 +31,112 @@
   <img id="plotImage" alt="Plot will appear here">
 
   <script type="module">
-    import { WebR } from 'https://webr.r-wasm.org/latest/webr.mjs';
+  import { WebR } from 'https://webr.r-wasm.org/latest/webr.mjs';
 
-    // ------------------- 1. Start webR -------------------
-    const webR = new WebR();
-    await webR.init();
+  const webR = new WebR();
+  await webR.init();
 
-    // ------------------- 2. DOM elements -------------------
-    const fileInput   = document.getElementById('csvFile');
-    const wellSelect  = document.getElementById('wellSelect');
-    const runBtn      = document.getElementById('runBtn');
-    const resultText  = document.getElementById('resultText');
-    const plotImage   = document.getElementById('plotImage');
+  const fileInput   = document.getElementById('csvFile');
+  const wellSelect  = document.getElementById('wellSelect');
+  const runBtn      = document.getElementById('runBtn');
+  const resultText  = document.getElementById('resultText');
+  const plotImage   = document.getElementById('plotImage');
 
-    let csvContent = '';
+  let csvContent = '';
 
-    // ------------------- 3. File upload → populate well list -------------------
-    fileInput.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = async (ev) => {
-        csvContent = ev.target.result;
-        // Assume first line is header, "Cycle" column then well columns
-        const firstLine = csvContent.split('\n')[0];
-        const headers = firstLine.split(',').map(h => h.trim().replace(/"/g, ''));
-        // Populate dropdown (skip first column which is assumed to be "Cycle")
-        wellSelect.innerHTML = '';
-        for (let i = 1; i < headers.length; i++) {
-          const opt = document.createElement('option');
-          opt.value = headers[i];
-          opt.textContent = headers[i];
-          wellSelect.appendChild(opt);
+  fileInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      csvContent = ev.target.result;
+      // Parse headers from first line (tab or comma separated)
+      const sep = csvContent.includes('\t') ? '\t' : ',';
+      const firstLine = csvContent.split('\n')[0];
+      const headers = firstLine.split(sep).map(h => h.trim().replace(/"/g, ''));
+      wellSelect.innerHTML = '';
+      for (let i = 1; i < headers.length; i++) {
+        const opt = document.createElement('option');
+        opt.value = headers[i];
+        opt.textContent = headers[i];
+        wellSelect.appendChild(opt);
+      }
+      wellSelect.disabled = false;
+      runBtn.disabled = false;
+    };
+    reader.readAsText(file);
+  });
+
+  runBtn.addEventListener('click', async () => {
+    const well = wellSelect.value;
+    if (!well || !csvContent) return;
+
+    runBtn.disabled = true;
+    resultText.textContent = 'Running LinRegPCR …';
+    plotImage.src = '';
+
+    try {
+      // Write CSV to virtual file system using FS API (compatible with all webR versions)
+      await webR.FS.writeFile({ path: '/data.csv', data: csvContent });
+
+      // R code – note the use of read.table with tab separator (adjust if needed)
+      const rCode = `
+        sg5_d2 <- function(y) {
+          coef <- c(2, -1, -2, -1, 2) / 7
+          n <- length(y)
+          d2 <- rep(NA_real_, n)
+          for (i in 3:(n - 2)) d2[i] <- sum(coef * y[(i - 2):(i + 2)])
+          d2
         }
-        wellSelect.disabled = false;
-        runBtn.disabled = false;
-      };
-      reader.readAsText(file);
-    });
+
+        linreg_ruijter4_final <- function(cycle, F_raw, tol = 1e-6) {
+          # ... (paste the entire unchanged function here, exactly as you provided) ...
+        }
+
+        plotter <- function(data, well){
+          res <- linreg_ruijter4_final(data$Cycle, data[, well])
+          png("plot.png", width = 600, height = 500)
+          par(mar = c(4,4,2,1))
+          plot(x = data$Cycle, y = log10(res$F_corr),
+               ylim = c(-2.5, 1.5), xlab = "Cycles", ylab = "log(corrected fluor)", xaxt = "n")
+          axis(side = 1, at = seq(0, max(data$Cycle), by = 5))
+          abline(h = log10(res$baseline), lty = "dashed", col = "blue")
+          abline(v = res$WoL_cycles[1], lty = "solid", col = "blue")
+          abline(v = res$WoL_cycles[res$window_width], lty = "solid", col = "blue")
+          abline(v = res$SDM_final, lty = "dotted", col = "orange")
+          dev.off()
+          return(res)
+        }
+
+        # Read the uploaded file (assumes tab-delimited; change sep = ',' for commas)
+        data <- read.table("data.csv", header = TRUE, sep = "\t")
+        res <- plotter(data, "${well}")
+        plot_raw <- readBin("plot.png", "raw", file.info("plot.png")$size)
+        list(plot = plot_raw, result = res)
+      `;
+
+      const output = await webR.evalR(rCode, { captureStreams: false });
+
+      const res = output.result;
+      let txt = `Efficiency (E): ${res.E.toFixed(4)}   (${res.Eff_pct.toFixed(2)} %)\n`;
+      txt += `Window of Linearity: cycles ${res.WoL_cycles.join(', ')} (width ${res.window_width})\n`;
+      txt += `SDM cycle: ${res.SDM_final}\n`;
+      txt += `Baseline (internal):  ${res.baseline.toFixed(2)}\n`;
+      txt += `Background (robust):  ${res.background.toFixed(2)}\n`;
+      txt += `Slope: ${res.slope.toFixed(6)}\n`;
+      txt += `R²: ${res.R_squared.toFixed(4)}\n`;
+      txt += `CV of slope: ${res.CV_slope.toFixed(6)}\n`;
+      txt += `Converged: ${res.converged}`;
+      resultText.textContent = txt;
+
+      const blob = new Blob([output.plot], { type: 'image/png' });
+      plotImage.src = URL.createObjectURL(blob);
+    } catch (err) {
+      resultText.textContent = 'Error: ' + err.message;
+    } finally {
+      runBtn.disabled = false;
+    }
+  });
 
     // ------------------- 4. Run analysis -------------------
     runBtn.addEventListener('click', async () => {
