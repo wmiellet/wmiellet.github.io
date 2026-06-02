@@ -55,9 +55,7 @@ When two genetic markers exhibit poor agreement in binar classification due to o
 ## Produce an Agreement plot with your own data!
 [Upload a CSV and create a plot directly in your browser](https://wmiellet.github.io/data_upload4.html).
 
-[serotype Agreement plot](https://wmiellet.github.io/serotype_ranking3.html).
-
-[new serotype Agreement plot](https://wmiellet.github.io/serotype_ranking4.html).
+[serotype Agreement plot](https://wmiellet.github.io/serotype_ranking4.html).
 
 ## Limitations
 While combining two genetic markers (particularly those belonging to different connectivity networks) can improve the specificity of molecular detection, the proposed method has a number of limitations. Importantly, diagnostic specificity can be excquisitely monitored but not controlled for when due to subgroup variation in bacterial composition, a specimen type exhibits lack of conditional dependence. In such instances, investigators can consider to redesign molecular targets in an attempt to improve diagnostic specificity or utilize alternative approaches, such a microfluidics-mediated linkage analysis [7]. Furthermore... <i>assay-level confidence vs sample-level confidence</i>, <i> arbitrary predefined limits </i>.
