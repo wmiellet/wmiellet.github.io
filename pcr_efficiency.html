@@ -2,15 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>LinRegPCR Efficiency</title>
+  <title>LinRegPCR – Pure JavaScript</title>
   <style>
     body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; }
     button, select, input { margin: 0.3rem; }
     pre { background: #f5f5f5; padding: 1rem; white-space: pre-wrap; }
+    canvas { border: 1px solid #ccc; margin-top: 1rem; max-width: 100%; }
   </style>
 </head>
 <body>
-  <h2>LinRegPCR Efficiency (Ruijter original method) v0.15</h2>
+  <h2>LinRegPCR Efficiency (JavaScript – no R needed) v0.16</h2>
 
   <label>Upload CSV/TSV file:</label><br>
   <input type="file" id="csvFile" accept=".csv,.tsv,.txt"><br>
@@ -26,141 +27,205 @@
   <h3>Efficiency Result</h3>
   <pre id="resultText">Upload a file and click Run.</pre>
 
-  <script type="module">
-    import { WebR } from 'https://webr.r-wasm.org/v0.4.1/webr.mjs';
+  <h3>Plot</h3>
+  <canvas id="plotCanvas" width="600" height="500" style="display:none;"></canvas>
 
-    const webR = new WebR();
-    await webR.init();
-
-    // ------ 1. Define the functions safely (returns TRUE) ------
-    await webR.evalR(`
-      tryCatch({
-        sg5_d2 <- function(y) {
-          coef <- c(2, -1, -2, -1, 2) / 7
-          n <- length(y)
-          d2 <- rep(NA_real_, n)
-          for (i in 3:(n - 2)) d2[i] <- sum(coef * y[(i - 2):(i + 2)])
-          d2
+  <script>
+    // ===================== LinRegPCR (JavaScript) =====================
+    function sg5_d2(y) {
+      const coef = [2, -1, -2, -1, 2];
+      const n = y.length;
+      const d2 = new Array(n).fill(NaN);
+      for (let i = 2; i < n - 2; i++) {
+        let sum = 0;
+        for (let j = -2; j <= 2; j++) {
+          sum += coef[j + 2] * y[i + j];
         }
+        d2[i] = sum / 7;
+      }
+      return d2;
+    }
 
-        linreg_ruijter4_final <- function(cycle, F_raw, tol = 1e-6) {
-          early5 <- median(F_raw[1:min(5, length(F_raw))])
-          if ((max(F_raw) - min(F_raw)) < 0.1 * early5) {
-            return(list(
-              baseline   = early5, background = early5,
-              F_corr     = F_raw - early5,
-              SDM_initial = NA_real_, SDM_final = NA_real_,
-              WoL_cycles = NA_real_, window_width = NA_integer_,
-              slope = NA_real_, E = 1.0, Eff_pct = 0,
-              CV_slope = NA_real_, R_squared = NA_real_, converged = FALSE
-            ))
-          }
-          B_init <- min(F_raw)
-          F_corr_init <- F_raw - B_init
-          pos <- F_corr_init[F_corr_init > 0]
-          if (length(pos) == 0 || max(F_corr_init) < 7 * min(pos)) stop("No amplification")
-          d2_init <- sg5_d2(F_corr_init)
-          SDM_init <- which.max(d2_init)
-          if (is.na(SDM_init) || SDM_init < 5) stop("SDM too early")
-          widths_to_test <- c(4L, 6L)
-          best_overall_CV <- Inf
-          best_result <- NULL
-          bg_median <- median(F_raw[1:min(5, length(F_raw))])
-          for (width in widths_to_test) {
-            start <- SDM_init - width
-            if (start < 1) next
-            WoL_tentative <- start:(SDM_init - 1)
-            slope_diff_fn <- function(Bcur) {
-              F_win <- F_raw[WoL_tentative] - Bcur
-              if (any(F_win <= 0)) return(NA)
-              lnF <- log(F_win)
-              half <- width %/% 2L
-              cyc <- cycle[WoL_tentative]
-              fit_low  <- lm(lnF[1:half] ~ cyc[1:half])
-              fit_upp  <- lm(lnF[(half+1):width] ~ cyc[(half+1):width])
-              coef(fit_upp)[2] - coef(fit_low)[2]
-            }
-            Bcur <- B_init; best_diff <- Inf; best_B <- Bcur
-            converged <- FALSE; B_found <- NULL
-            for (iter in 1:100) {
-              d <- slope_diff_fn(Bcur)
-              if (is.na(d)) break
-              ad <- abs(d)
-              if (ad < best_diff) { best_diff <- ad; best_B <- Bcur }
-              if (ad < tol) { B_found <- Bcur; converged <- TRUE; break }
-              if (d > tol) { Bcur <- Bcur * 1.001 } else { Bcur <- Bcur * 0.999 }
-            }
-            if (!converged && best_diff < Inf) { B_found <- best_B; converged <- FALSE }
-            if (is.null(B_found)) next
-            F_corr <- F_raw - B_found
-            d2_final <- sg5_d2(F_corr)
-            SDM_final <- which.max(d2_final)
-            if (is.na(SDM_final) || SDM_final < 5) next
-            best_CV <- Inf; best_WoL <- NULL; best_fit <- NULL
-            for (end in (SDM_final - 1):width) {
-              start_w <- end - width + 1
-              if (start_w < 1) break
-              F_win <- F_corr[start_w:end]
-              if (any(F_win <= 0)) next
-              lnF <- log(F_win)
-              cyc_win <- cycle[start_w:end]
-              fit <- lm(lnF ~ cyc_win)
-              s <- summary(fit)
-              coefs <- s$coefficients
-              if (any(is.na(coefs[,"Std. Error"]))) next
-              slope <- coefs[2,1]; se <- coefs[2,2]
-              if (slope == 0) next
-              CV <- se / abs(slope)
-              if (is.na(CV)) next
-              if (CV < best_CV) {
-                best_CV <- CV; best_WoL <- start_w:end
-                best_fit <- fit; best_summary <- s
-              }
-            }
-            if (is.null(best_WoL)) next
-            slope <- coef(best_fit)[2]
-            E <- exp(slope)
-            candidate <- list(
-              baseline = B_found, background = bg_median, F_corr = F_corr,
-              SDM_initial = SDM_init, SDM_final = SDM_final,
-              WoL_cycles = best_WoL, window_width = width,
-              slope = slope, E = E, Eff_pct = (E - 1)*100,
-              CV_slope = best_CV, R_squared = best_summary$r.squared,
-              converged = converged
-            )
-            if (best_CV < best_overall_CV) {
-              best_overall_CV <- best_CV; best_result <- candidate
-            }
-          }
-          if (is.null(best_result)) stop("No valid window found")
-          return(best_result)
+    function linreg_ruijter4_final(cycle, F_raw, tol = 1e-6) {
+      const n = F_raw.length;
+      const early5 = F_raw.slice(0, Math.min(5, n)).reduce((a,b)=>a+b,0)/Math.min(5,n);
+      if ((Math.max(...F_raw) - Math.min(...F_raw)) < 0.1 * early5) {
+        return {
+          baseline: early5, background: early5,
+          F_corr: F_raw.map(v => v - early5),
+          SDM_initial: NaN, SDM_final: NaN,
+          WoL_cycles: [], window_width: NaN,
+          slope: NaN, E: 1.0, Eff_pct: 0,
+          CV_slope: NaN, R_squared: NaN, converged: false
+        };
+      }
+
+      const B_init = Math.min(...F_raw);
+      const F_corr_init = F_raw.map(v => v - B_init);
+      const pos = F_corr_init.filter(v => v > 0);
+      if (pos.length === 0 || Math.max(...F_corr_init) < 7 * Math.min(...pos)) {
+        throw new Error("No amplification");
+      }
+
+      const d2_init = sg5_d2(F_corr_init);
+      let SDM_init = d2_init.indexOf(Math.max(...d2_init));
+      if (isNaN(SDM_init) || SDM_init < 5) throw new Error("SDM too early");
+
+      const widths_to_test = [4, 6];
+      let best_overall_CV = Infinity;
+      let best_result = null;
+      const bg_median = F_raw.slice(0, Math.min(5,n)).sort((a,b)=>a-b)[Math.floor(Math.min(5,n)/2)];
+
+      // Helper: slope difference for baseline refinement
+      function slope_diff_fn(Bcur, WoL_tentative) {
+        const F_win = WoL_tentative.map(i => F_raw[i] - Bcur);
+        if (F_win.some(v => v <= 0)) return NaN;
+        const lnF = F_win.map(Math.log);
+        const half = Math.floor(WoL_tentative.length / 2);
+        const cyc_win = WoL_tentative.map(i => cycle[i]);
+        // simple linear regression for two halves
+        function fit(x, y) {
+          const n = x.length;
+          const sumX = x.reduce((a,b)=>a+b,0);
+          const sumY = y.reduce((a,b)=>a+b,0);
+          const sumXY = x.reduce((a,b,i)=>a+b*y[i],0);
+          const sumXX = x.reduce((a,b)=>a+b*b,0);
+          const slope = (n*sumXY - sumX*sumY) / (n*sumXX - sumX*sumX);
+          return slope;
         }
-        TRUE
-      }, error = function(e) TRUE)
-    `);
+        const slope_low = fit(cyc_win.slice(0,half), lnF.slice(0,half));
+        const slope_upp = fit(cyc_win.slice(half), lnF.slice(half));
+        return slope_upp - slope_low;
+      }
 
-    // ------ 2. File upload ------
+      for (const width of widths_to_test) {
+        const start = SDM_init - width;
+        if (start < 1) continue;
+        const WoL_tentative = Array.from({length: width}, (_,i) => start + i);
+
+        // Baseline refinement
+        let Bcur = B_init;
+        let best_diff = Infinity;
+        let best_B = Bcur;
+        let converged = false;
+        let B_found = null;
+        for (let iter = 0; iter < 100; iter++) {
+          const d = slope_diff_fn(Bcur, WoL_tentative);
+          if (isNaN(d)) break;
+          const ad = Math.abs(d);
+          if (ad < best_diff) { best_diff = ad; best_B = Bcur; }
+          if (ad < tol) { B_found = Bcur; converged = true; break; }
+          if (d > tol) { Bcur *= 1.001; } else { Bcur *= 0.999; }
+        }
+        if (!converged && best_diff < Infinity) { B_found = best_B; converged = false; }
+        if (B_found === null) continue;
+
+        const F_corr = F_raw.map(v => v - B_found);
+        const d2_final = sg5_d2(F_corr);
+        let SDM_final = d2_final.indexOf(Math.max(...d2_final));
+        if (isNaN(SDM_final) || SDM_final < 5) continue;
+
+        let best_CV = Infinity;
+        let best_WoL = null;
+        let best_fit = null;
+        for (let end = SDM_final - 1; end >= width; end--) {
+          const start_w = end - width + 1;
+          if (start_w < 1) break;
+          const F_win = F_corr.slice(start_w, end+1);
+          if (F_win.some(v => v <= 0)) continue;
+          const lnF = F_win.map(Math.log);
+          const cyc_win = cycle.slice(start_w, end+1);
+          // linear regression
+          const n_win = cyc_win.length;
+          const sumX = cyc_win.reduce((a,b)=>a+b,0);
+          const sumY = lnF.reduce((a,b)=>a+b,0);
+          const sumXY = cyc_win.reduce((a,b,i)=>a+b*lnF[i],0);
+          const sumXX = cyc_win.reduce((a,b)=>a+b*b,0);
+          const denom = n_win*sumXX - sumX*sumX;
+          if (denom === 0) continue;
+          const slope = (n_win*sumXY - sumX*sumY) / denom;
+          if (slope === 0) continue;
+          const intercept = (sumY - slope*sumX) / n_win;
+          const yPred = cyc_win.map(x => intercept + slope*x);
+          const ssRes = lnF.reduce((a,b,i)=>a+(b-yPred[i])**2,0);
+          const meanY = sumY / n_win;
+          const ssTot = lnF.reduce((a,b)=>a+(b-meanY)**2,0);
+          const R_squared = ssTot === 0 ? 1 : 1 - ssRes/ssTot;
+          const se = Math.sqrt(ssRes/(n_win-2)) / Math.sqrt(cyc_win.reduce((a,b)=>a+(b-sumX/n_win)**2,0));
+          const CV = se / Math.abs(slope);
+          if (isNaN(CV)) continue;
+          if (CV < best_CV) {
+            best_CV = CV;
+            best_WoL = Array.from({length: width}, (_,i) => start_w + i);
+            best_fit = { slope, E: Math.exp(slope), R_squared, se, CV };
+          }
+        }
+        if (best_WoL === null) continue;
+
+        const { slope, E, R_squared, se, CV } = best_fit;
+        const candidate = {
+          baseline: B_found,
+          background: bg_median,
+          F_corr: F_corr,
+          SDM_initial: SDM_init,
+          SDM_final: SDM_final,
+          WoL_cycles: best_WoL,
+          window_width: width,
+          slope: slope,
+          E: E,
+          Eff_pct: (E - 1) * 100,
+          CV_slope: CV,
+          R_squared: R_squared,
+          converged: converged
+        };
+        if (CV < best_overall_CV) {
+          best_overall_CV = CV;
+          best_result = candidate;
+        }
+      }
+
+      if (best_result === null) throw new Error("No valid window found");
+      return best_result;
+    }
+
+    // ===================== File handling =====================
     const fileInput   = document.getElementById('csvFile');
     const wellSelect  = document.getElementById('wellSelect');
     const runBtn      = document.getElementById('runBtn');
     const resultText  = document.getElementById('resultText');
+    const plotCanvas  = document.getElementById('plotCanvas');
+    const ctx = plotCanvas.getContext('2d');
 
-    let csvContent = '';
+    let parsedData = null; // { cycles: number[], wells: { [name]: number[] } }
 
-    fileInput.addEventListener('change', async (e) => {
+    fileInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = async (ev) => {
-        csvContent = ev.target.result;
-        const sep = csvContent.includes('\t') ? '\t' : ',';
-        const firstLine = csvContent.split('\n')[0];
-        const headers = firstLine.split(sep).map(h => h.trim().replace(/"/g, ''));
+      reader.onload = (ev) => {
+        const text = ev.target.result;
+        const sep = text.includes('\t') ? '\t' : ',';
+        const lines = text.trim().split('\n');
+        const headers = lines[0].split(sep).map(h => h.trim().replace(/"/g, ''));
+        const cycles = [];
+        const wells = {};
+        for (let i = 1; i < headers.length; i++) wells[headers[i]] = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const vals = lines[i].split(sep).map(v => v.trim());
+          if (vals.length < headers.length) continue;
+          cycles.push(Number(vals[0]));
+          for (let j = 1; j < headers.length; j++) {
+            wells[headers[j]].push(Number(vals[j]));
+          }
+        }
+        parsedData = { cycles, wells };
+        // Populate dropdown
         wellSelect.innerHTML = '';
-        for (let i = 1; i < headers.length; i++) {
+        for (const well of Object.keys(wells)) {
           const opt = document.createElement('option');
-          opt.value = headers[i];
-          opt.textContent = headers[i];
+          opt.value = well;
+          opt.textContent = well;
           wellSelect.appendChild(opt);
         }
         wellSelect.disabled = false;
@@ -169,81 +234,123 @@
       reader.readAsText(file);
     });
 
-    // ------ 3. Run analysis (writes result.txt, returns TRUE) ------
-    runBtn.addEventListener('click', async () => {
+    runBtn.addEventListener('click', () => {
       const well = wellSelect.value;
-      if (!well || !csvContent) return;
+      if (!well || !parsedData) return;
 
-      runBtn.disabled = true;
-      resultText.textContent = 'Running LinRegPCR …';
+      const { cycles, wells } = parsedData;
+      const F_raw = wells[well];
 
       try {
-        await webR.FS.writeFile({ path: '/data.csv', data: csvContent });
+        const res = linreg_ruijter4_final(cycles, F_raw);
+        let txt = `Efficiency (E): ${res.E.toFixed(4)}   (${res.Eff_pct.toFixed(2)} %)\n`;
+        txt += `Window of Linearity: cycles ${res.WoL_cycles.join(', ')} (width ${res.window_width})\n`;
+        txt += `SDM cycle: ${res.SDM_final}\n`;
+        txt += `Baseline (internal):  ${res.baseline.toFixed(2)}\n`;
+        txt += `Background (robust):  ${res.background.toFixed(2)}\n`;
+        txt += `Slope: ${res.slope.toFixed(6)}\n`;
+        txt += `R²: ${res.R_squared.toFixed(4)}\n`;
+        txt += `CV of slope: ${res.CV_slope.toFixed(6)}\n`;
+        txt += `Converged: ${res.converged}`;
+        resultText.textContent = txt;
 
-        const rCode = `
-          tryCatch({
-            first_line <- readLines("data.csv", n = 1)
-            sep <- if (grepl("\t", first_line)) "\t" else ","
-            data <- read.table("data.csv", header = TRUE, sep = sep)
-            res <- linreg_ruijter4_final(data$Cycle, data[["${well}"]])
-            writeLines(c(
-              paste0("E:", res$E),
-              paste0("Eff_pct:", res$Eff_pct),
-              paste0("slope:", res$slope),
-              paste0("baseline:", res$baseline),
-              paste0("background:", res$background),
-              paste0("SDM_final:", res$SDM_final),
-              paste0("WoL_cycles:", paste(res$WoL_cycles, collapse = ",")),
-              paste0("window_width:", res$window_width),
-              paste0("CV_slope:", res$CV_slope),
-              paste0("R_squared:", res$R_squared),
-              paste0("converged:", res$converged),
-              "error:none"
-            ), "result.txt")
-          }, error = function(e) {
-            writeLines(c(
-              "E:NA", "Eff_pct:NA", "slope:NA",
-              "baseline:NA", "background:NA",
-              "SDM_final:NA", "WoL_cycles:",
-              "window_width:NA", "CV_slope:NA",
-              "R_squared:NA", "converged:FALSE",
-              paste0("error:", conditionMessage(e))
-            ), "result.txt")
-          })
-          TRUE
-        `;
+        // ----- Draw plot -----
+        plotCanvas.style.display = 'block';
+        const w = plotCanvas.width, h = plotCanvas.height;
+        ctx.clearRect(0,0,w,h);
+        const margin = { top: 30, right: 30, bottom: 50, left: 60 };
+        const plotW = w - margin.left - margin.right;
+        const plotH = h - margin.top - margin.bottom;
 
-        // evalR returns TRUE – conversion is always safe
-        await webR.evalR(rCode);
+        // Compute log10(F_corr)
+        const logF = res.F_corr.map(v => Math.log10(v));
+        const xVals = cycles;
+        const yMin = -2.5, yMax = 1.5;
+        const xMin = 0, xMax = Math.max(...cycles) + 1;
 
-        // Read results from file
-        const resultRaw = await webR.FS.readFile('/result.txt', { encoding: 'utf8' });
-        const lines = resultRaw.split('\n').filter(l => l.includes(':'));
-        const parsed = {};
-        lines.forEach(line => {
-          const [key, ...rest] = line.split(':');
-          parsed[key.trim()] = rest.join(':').trim();
-        });
+        // Scale functions
+        const scaleX = (x) => margin.left + (x - xMin) / (xMax - xMin) * plotW;
+        const scaleY = (y) => margin.top + (yMax - y) / (yMax - yMin) * plotH;
 
-        if (parsed.error && parsed.error !== 'none') {
-          resultText.textContent = '⚠️  LinRegPCR failed:\n' + parsed.error;
-        } else {
-          let txt = `Efficiency (E): ${parseFloat(parsed.E).toFixed(4)}   (${parseFloat(parsed.Eff_pct).toFixed(2)} %)\n`;
-          txt += `Window of Linearity: cycles ${parsed.WoL_cycles} (width ${parsed.window_width})\n`;
-          txt += `SDM cycle: ${parsed.SDM_final}\n`;
-          txt += `Baseline (internal):  ${parseFloat(parsed.baseline).toFixed(2)}\n`;
-          txt += `Background (robust):  ${parseFloat(parsed.background).toFixed(2)}\n`;
-          txt += `Slope: ${parseFloat(parsed.slope).toFixed(6)}\n`;
-          txt += `R²: ${parseFloat(parsed.R_squared).toFixed(4)}\n`;
-          txt += `CV of slope: ${parseFloat(parsed.CV_slope).toFixed(6)}\n`;
-          txt += `Converged: ${parsed.converged}`;
-          resultText.textContent = txt;
+        // Draw axes
+        ctx.strokeStyle = '#000';
+        ctx.beginPath();
+        ctx.moveTo(margin.left, margin.top);
+        ctx.lineTo(margin.left, h - margin.bottom);
+        ctx.lineTo(w - margin.right, h - margin.bottom);
+        ctx.stroke();
+
+        // X axis labels
+        ctx.fillStyle = '#000';
+        ctx.textAlign = 'center';
+        for (let i = 0; i <= Math.max(...cycles); i += 5) {
+          const x = scaleX(i);
+          ctx.fillText(i, x, h - margin.bottom + 20);
         }
+        ctx.textAlign = 'right';
+        for (let y = -2.5; y <= 1.5; y += 0.5) {
+          const yPos = scaleY(y);
+          ctx.fillText(y.toFixed(1), margin.left - 10, yPos + 4);
+        }
+        ctx.textAlign = 'center';
+        ctx.fillText('Cycles', w/2, h - 5);
+        ctx.save();
+        ctx.translate(15, h/2);
+        ctx.rotate(-Math.PI/2);
+        ctx.fillText('log(corrected fluor)', 0, 0);
+        ctx.restore();
+
+        // Plot logF
+        ctx.strokeStyle = 'black';
+        ctx.beginPath();
+        for (let i = 0; i < xVals.length; i++) {
+          const x = scaleX(xVals[i]);
+          const y = scaleY(Math.max(yMin, Math.min(yMax, logF[i])));
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+
+        // Baseline
+        const baseY = scaleY(Math.log10(res.baseline));
+        ctx.strokeStyle = 'blue';
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(margin.left, baseY);
+        ctx.lineTo(w - margin.right, baseY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // WoL start and end
+        if (res.WoL_cycles.length > 0) {
+          const woLStart = scaleX(res.WoL_cycles[0]);
+          const woLEnd = scaleX(res.WoL_cycles[res.WoL_cycles.length-1]);
+          ctx.strokeStyle = 'blue';
+          ctx.beginPath();
+          ctx.moveTo(woLStart, margin.top);
+          ctx.lineTo(woLStart, h - margin.bottom);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(woLEnd, margin.top);
+          ctx.lineTo(woLEnd, h - margin.bottom);
+          ctx.stroke();
+        }
+
+        // SDM
+        if (!isNaN(res.SDM_final)) {
+          const sdmX = scaleX(res.SDM_final);
+          ctx.strokeStyle = 'orange';
+          ctx.setLineDash([2, 3]);
+          ctx.beginPath();
+          ctx.moveTo(sdmX, margin.top);
+          ctx.lineTo(sdmX, h - margin.bottom);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
       } catch (err) {
-        resultText.textContent = 'JavaScript error: ' + err.message;
-        console.error(err);
-      } finally {
-        runBtn.disabled = false;
+        resultText.textContent = '⚠️  LinRegPCR failed:\n' + err.message;
+        plotCanvas.style.display = 'none';
       }
     });
   </script>
