@@ -17,18 +17,23 @@ Unlike a correlation plot, where each axis represents one genetic marker, an agr
 The proposed method rests on two assumptions: (I) the differences between genetic marker measurements are non normally distributed, and (II) the difference between the two markers is not proportional to the mean of the two measurements [2]. When one of the two markers exhibits reduced specificity and samples often contain strains that are positive for only one of the markers, non parametric limits of agreement should be considered [5]. When using non-parametric limits, the median difference is indicated in the agreement plot as well as the limits of agreement based on the 2.5 and 97.5th percentile.
 
 ## Types of Agreement Plots
-We distinguish between two types of agreement plots: the <i>population-specific agreement plot</i> and the <i>serotyping agreement plot</i>. In the former, two genetic markers with presumed population-specific accuracy are compared, whereas in the latter, a serotype-specific marker is compared against a population-specific marker. Serotype-specific markers are allowed to have lower abundance than population-specific markers to account for multiple serotype carriage. However, when the abundance of a serotype-specific marker strongly exceeds that of the population-specific marker, this finding suggests conditional independence, i.e., the two markers are not measuring the same bacterial population. In such cases, the serotype-specific quantification can be attributed to confounding by a different bacterial population. For the serotype agreement plot, the acceptable limit can be either 2 Cq or the limits of agreement derived from markers A and B themselves [4].
+We distinguish between two types of agreement plots: the <i>population-specific agreement plot</i> and the <i>serotyping agreement plot</i>. In the former, two genetic markers with presumed population-specific accuracy are compared, whereas in the latter, serotype-specific markers are ranked by abundance in each sample and primary serotypes are compared against a population-specific marker. Serotype-specific markers are allowed to have lower abundance than population-specific markers to account for multiple serotype carriage. However, when the abundance of a serotype-specific marker strongly exceeds that of the population-specific marker, this finding suggests conditional independence, i.e., the two markers are not measuring the same bacterial population. In such cases, the serotype-specific quantification can be attributed to confounding by a different bacterial population. For the serotype agreement plot, the acceptable limit can be either 2 Cq or the limits of agreement derived from markers A and B themselves [4].
 
 ### population-specific agreement plot
-[Text].
+When both markers accurately detect the same bacterial population, the difference between their measurements shows minimal bias, and the limits of agreement (LoAs) stay within predefined acceptable thresholds (Fig. 2). In this case, data points tend to cluster along the x‑axis and lie close to the line of equality (LoE). This indicates that the two genetic markers are conditionally dependent, supporting the validity of the dual‑target combination.
+
 <iframe src="https://wmiellet.github.io/plot.html" width="100%" height="350" frameborder="0"></iframe>
 
-###### Figure 1: [Legend text].
+###### Figure 2: [Legend text].
 ###### [Text]
+
+In some cases, binary agreement in classification may be suboptimal due to the presence of strains or closely related species that are positive for only one of the two markers. When such strains are common, the targeted bacterial population may co‑occur, further reducing agreement between the markers.
+
+If two genetic markers are rarely found together in a given bacterial population, conditional independence between them is observed. Here, the bias between markers is often substantial, and the LoAs exceed the predefined acceptable limits (Fig. 3). Data points tend to scatter randomly across the Bland–Altman plot.
 
 <iframe src="https://wmiellet.github.io/plot2.html" width="100%" height="350" frameborder="0"></iframe>
 
-###### Figure 2: 
+###### Figure 3: 
 ###### [Legend text].
 
 ### serotyping agreement plot
