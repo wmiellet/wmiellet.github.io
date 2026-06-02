@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>LinRegPCR – Pure JavaScript (fixed)</title>
+  <title>LinRegPCR – Pure JavaScript (fixed NaN bug)</title>
   <style>
     body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; }
     button, select, input { margin: 0.3rem; }
@@ -11,7 +11,7 @@
   </style>
 </head>
 <body>
-  <h2>LinRegPCR Efficiency (JavaScript – fixed SDM check) v0.17</h2>
+  <h2>LinRegPCR Efficiency (JavaScript – SDM fixed) v0.18</h2>
 
   <label>Upload CSV/TSV file:</label><br>
   <input type="file" id="csvFile" accept=".csv,.tsv,.txt"><br>
@@ -46,6 +46,19 @@
       return d2;
     }
 
+    // Helper: index of maximum, ignoring NaN (returns -1 if all NaN)
+    function indexOfMax(arr) {
+      let maxIdx = -1;
+      let maxVal = -Infinity;
+      for (let i = 0; i < arr.length; i++) {
+        if (!isNaN(arr[i]) && arr[i] > maxVal) {
+          maxVal = arr[i];
+          maxIdx = i;
+        }
+      }
+      return maxIdx;
+    }
+
     function linreg_ruijter4_final(cycle, F_raw, tol = 1e-6) {
       const n = F_raw.length;
       const early5 = F_raw.slice(0, Math.min(5, n)).reduce((a,b)=>a+b,0)/Math.min(5,n);
@@ -68,16 +81,14 @@
       }
 
       const d2_init = sg5_d2(F_corr_init);
-      let SDM_init = d2_init.indexOf(Math.max(...d2_init));  // 0-based index
-      // ---- FIXED: SDM must be at least the 5th cycle (0-based index >= 4) ----
-      if (isNaN(SDM_init) || SDM_init < 4) throw new Error("SDM too early");
+      let SDM_init = indexOfMax(d2_init);   // 0‑based, ignores NaN
+      if (SDM_init === -1 || SDM_init < 4) throw new Error("SDM too early");
 
       const widths_to_test = [4, 6];
       let best_overall_CV = Infinity;
       let best_result = null;
       const bg_median = F_raw.slice(0, Math.min(5,n)).sort((a,b)=>a-b)[Math.floor(Math.min(5,n)/2)];
 
-      // Helper: slope difference for baseline refinement
       function slope_diff_fn(Bcur, WoL_tentative) {
         const F_win = WoL_tentative.map(i => F_raw[i] - Bcur);
         if (F_win.some(v => v <= 0)) return NaN;
@@ -98,11 +109,10 @@
       }
 
       for (const width of widths_to_test) {
-        const start = SDM_init - width;   // 0-based start index
+        const start = SDM_init - width;
         if (start < 0) continue;
         const WoL_tentative = Array.from({length: width}, (_,i) => start + i);
 
-        // Baseline refinement
         let Bcur = B_init;
         let best_diff = Infinity;
         let best_B = Bcur;
@@ -121,13 +131,12 @@
 
         const F_corr = F_raw.map(v => v - B_found);
         const d2_final = sg5_d2(F_corr);
-        let SDM_final = d2_final.indexOf(Math.max(...d2_final)); // 0-based
-        if (isNaN(SDM_final) || SDM_final < 4) continue; // also require SDM >= 5th cycle
+        let SDM_final = indexOfMax(d2_final); // 0‑based
+        if (SDM_final === -1 || SDM_final < 4) continue;
 
         let best_CV = Infinity;
         let best_WoL = null;
         let best_fit = null;
-        // Window scan (end is 0-based index of last cycle in window)
         for (let end = SDM_final - 1; end >= width-1; end--) {
           const start_w = end - width + 1;
           if (start_w < 0) break;
@@ -166,9 +175,9 @@
           baseline: B_found,
           background: bg_median,
           F_corr: F_corr,
-          SDM_initial: SDM_init + 1,     // convert to 1-based for display
+          SDM_initial: SDM_init + 1,      // convert to 1‑based for display
           SDM_final: SDM_final + 1,
-          WoL_cycles: best_WoL.map(i => i + 1), // convert to 1-based cycle numbers
+          WoL_cycles: best_WoL.map(i => i + 1),
           window_width: width,
           slope: slope,
           E: E,
@@ -187,7 +196,7 @@
       return best_result;
     }
 
-    // ===================== File handling =====================
+    // ===================== File handling & UI =====================
     const fileInput   = document.getElementById('csvFile');
     const wellSelect  = document.getElementById('wellSelect');
     const runBtn      = document.getElementById('runBtn');
@@ -195,7 +204,7 @@
     const plotCanvas  = document.getElementById('plotCanvas');
     const ctx = plotCanvas.getContext('2d');
 
-    let parsedData = null; // { cycles: number[], wells: { [name]: number[] } }
+    let parsedData = null;
 
     fileInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
@@ -219,7 +228,6 @@
           }
         }
         parsedData = { cycles, wells };
-        // Populate dropdown
         wellSelect.innerHTML = '';
         for (const well of Object.keys(wells)) {
           const opt = document.createElement('option');
@@ -253,7 +261,7 @@
         txt += `Converged: ${res.converged}`;
         resultText.textContent = txt;
 
-        // ----- Draw plot -----
+        // ----- Plot -----
         plotCanvas.style.display = 'block';
         const w = plotCanvas.width, h = plotCanvas.height;
         ctx.clearRect(0,0,w,h);
@@ -261,17 +269,15 @@
         const plotW = w - margin.left - margin.right;
         const plotH = h - margin.top - margin.bottom;
 
-        // Compute log10(F_corr) – F_corr might have zeros/negatives, replace with tiny positive
         const safeF = res.F_corr.map(v => v <= 0 ? 1e-15 : v);
         const logF = safeF.map(v => Math.log10(v));
-        const xVals = cycles; // 1..45
         const yMin = -2.5, yMax = 1.5;
         const xMin = 0, xMax = Math.max(...cycles) + 1;
 
         const scaleX = (x) => margin.left + (x - xMin) / (xMax - xMin) * plotW;
         const scaleY = (y) => margin.top + (yMax - y) / (yMax - yMin) * plotH;
 
-        // Draw axes
+        // Axes
         ctx.strokeStyle = '#000';
         ctx.beginPath();
         ctx.moveTo(margin.left, margin.top);
@@ -279,17 +285,14 @@
         ctx.lineTo(w - margin.right, h - margin.bottom);
         ctx.stroke();
 
-        // Labels
         ctx.fillStyle = '#000';
         ctx.textAlign = 'center';
         for (let i = 0; i <= Math.max(...cycles); i += 5) {
-          const x = scaleX(i);
-          ctx.fillText(i, x, h - margin.bottom + 20);
+          ctx.fillText(i, scaleX(i), h - margin.bottom + 20);
         }
         ctx.textAlign = 'right';
         for (let y = -2.5; y <= 1.5; y += 0.5) {
-          const yPos = scaleY(y);
-          ctx.fillText(y.toFixed(1), margin.left - 10, yPos + 4);
+          ctx.fillText(y.toFixed(1), margin.left - 10, scaleY(y) + 4);
         }
         ctx.textAlign = 'center';
         ctx.fillText('Cycles', w/2, h - 5);
@@ -299,11 +302,11 @@
         ctx.fillText('log(corrected fluor)', 0, 0);
         ctx.restore();
 
-        // Plot logF
+        // Data
         ctx.strokeStyle = 'black';
         ctx.beginPath();
-        for (let i = 0; i < xVals.length; i++) {
-          const x = scaleX(xVals[i]);
+        for (let i = 0; i < cycles.length; i++) {
+          const x = scaleX(cycles[i]);
           const y = scaleY(Math.max(yMin, Math.min(yMax, logF[i])));
           if (i === 0) ctx.moveTo(x, y);
           else ctx.lineTo(x, y);
@@ -320,26 +323,23 @@
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // WoL start and end
+        // Window of Linearity
         if (res.WoL_cycles.length > 0) {
-          const woLStart = scaleX(res.WoL_cycles[0]);
-          const woLEnd = scaleX(res.WoL_cycles[res.WoL_cycles.length-1]);
           ctx.strokeStyle = 'blue';
-          ctx.beginPath();
-          ctx.moveTo(woLStart, margin.top);
-          ctx.lineTo(woLStart, h - margin.bottom);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(woLEnd, margin.top);
-          ctx.lineTo(woLEnd, h - margin.bottom);
-          ctx.stroke();
+          [res.WoL_cycles[0], res.WoL_cycles[res.WoL_cycles.length-1]].forEach(cyc => {
+            const x = scaleX(cyc);
+            ctx.beginPath();
+            ctx.moveTo(x, margin.top);
+            ctx.lineTo(x, h - margin.bottom);
+            ctx.stroke();
+          });
         }
 
         // SDM
         if (!isNaN(res.SDM_final)) {
-          const sdmX = scaleX(res.SDM_final);
           ctx.strokeStyle = 'orange';
           ctx.setLineDash([2, 3]);
+          const sdmX = scaleX(res.SDM_final);
           ctx.beginPath();
           ctx.moveTo(sdmX, margin.top);
           ctx.lineTo(sdmX, h - margin.bottom);
