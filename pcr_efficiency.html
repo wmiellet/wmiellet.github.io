@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>LinRegPCR – Full Plot (matching R layout)</title>
+  <title>LinRegPCR estimation</title>
   <style>
     body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; }
     button, select, input { margin: 0.3rem; }
@@ -11,7 +11,7 @@
   </style>
 </head>
 <body>
-  <h2>LinRegPCR Efficiency (Ruijter method) – Plot matches R layout v0.19</h2>
+  <h2>LinRegPCR Efficiency (adapted Ruijter et al. 2009) v0.20</h2>
 
   <label>Upload CSV/TSV file:</label><br>
   <input type="file" id="csvFile" accept=".csv,.tsv,.txt"><br>
@@ -172,7 +172,7 @@
           baseline: B_found,
           background: bg_median,
           F_corr: F_corr,
-          SDM_initial: SDM_init + 1,   // 1‑based for display
+          SDM_initial: SDM_init + 1,
           SDM_final: SDM_final + 1,
           WoL_cycles: best_WoL.map(i => i + 1),
           window_width: width,
@@ -193,7 +193,7 @@
       return best_result;
     }
 
-    // ===================== File handling & plot =====================
+    // ===================== File handling & data-points plot =====================
     const fileInput   = document.getElementById('csvFile');
     const wellSelect  = document.getElementById('wellSelect');
     const runBtn      = document.getElementById('runBtn');
@@ -258,24 +258,22 @@
         txt += `Converged: ${res.converged}`;
         resultText.textContent = txt;
 
-        // ---------- Plot EXACTLY as original R layout ----------
+        // ---------- Plot with DATA POINTS only (no line) ----------
         plotCanvas.style.display = 'block';
         const w = plotCanvas.width, h = plotCanvas.height;
         ctx.clearRect(0, 0, w, h);
 
-        // Margins
         const margin = { top: 30, right: 30, bottom: 50, left: 60 };
         const plotW = w - margin.left - margin.right;
         const plotH = h - margin.top - margin.bottom;
 
-        // Fixed axis limits to match R: x 0-45, y -2.5 to 1.5
         const xMin = 0, xMax = 45;
         const yMin = -2.5, yMax = 1.5;
 
         const scaleX = (x) => margin.left + (x - xMin) / (xMax - xMin) * plotW;
         const scaleY = (y) => margin.top + (yMax - y) / (yMax - yMin) * plotH;
 
-        // Draw box
+        // Axes
         ctx.strokeStyle = '#000';
         ctx.beginPath();
         ctx.moveTo(margin.left, margin.top);
@@ -283,7 +281,7 @@
         ctx.lineTo(w - margin.right, h - margin.bottom);
         ctx.stroke();
 
-        // X-axis ticks at EXACT positions 0,5,10,...,45
+        // X ticks
         const xTicks = [0,5,10,15,20,25,30,35,40,45];
         ctx.fillStyle = '#000';
         ctx.textAlign = 'center';
@@ -296,11 +294,10 @@
           ctx.fillText(tick, x, h - margin.bottom + 20);
         });
 
-        // Y-axis labels every 0.5
+        // Y ticks
         ctx.textAlign = 'right';
         for (let y = -2.5; y <= 1.5; y += 0.5) {
-          const yPos = scaleY(y);
-          ctx.fillText(y.toFixed(1), margin.left - 10, yPos + 4);
+          ctx.fillText(y.toFixed(1), margin.left - 10, scaleY(y) + 4);
         }
 
         // Axis titles
@@ -312,29 +309,21 @@
         ctx.fillText('log(corrected fluor)', 0, 0);
         ctx.restore();
 
-        // Draw log10(F_corr) line, skipping NaN (where F_corr <= 0)
+        // ---- Draw data points (small filled circles) ----
         const logF = res.F_corr.map(v => v <= 0 ? NaN : Math.log10(v));
-        ctx.strokeStyle = 'black';
-        ctx.beginPath();
-        let first = true;
+        ctx.fillStyle = 'black';
+        const pointRadius = 2.5;
         for (let i = 0; i < cycles.length; i++) {
-          const x = scaleX(cycles[i]);
           const yVal = logF[i];
-          if (isNaN(yVal)) {
-            first = true; // break path
-            continue;
-          }
+          if (isNaN(yVal)) continue;
+          const x = scaleX(cycles[i]);
           const y = scaleY(Math.max(yMin, Math.min(yMax, yVal)));
-          if (first) {
-            ctx.moveTo(x, y);
-            first = false;
-          } else {
-            ctx.lineTo(x, y);
-          }
+          ctx.beginPath();
+          ctx.arc(x, y, pointRadius, 0, 2 * Math.PI);
+          ctx.fill();
         }
-        ctx.stroke();
 
-        // Baseline: dashed blue horizontal line at log10(baseline)
+        // Baseline: dashed blue horizontal line
         const baseY = scaleY(Math.log10(res.baseline));
         ctx.strokeStyle = 'blue';
         ctx.setLineDash([5, 5]);
