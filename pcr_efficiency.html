@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>LinRegPCR – WebR (data.table, safe)</title>
+  <title>LinRegPCR – WebR (base R, no packages)</title>
   <style>
     body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; }
     button, select, input { margin: 0.3rem; }
@@ -11,7 +11,7 @@
   </style>
 </head>
 <body>
-  <h2>LinRegPCR Efficiency – Ruijter method (data.table) v0.12</h2>
+  <h2>LinRegPCR Efficiency – Ruijter method (base R) v0.13</h2>
 
   <label>Upload CSV/TSV file:</label><br>
   <input type="file" id="csvFile" accept=".csv,.tsv,.txt"><br>
@@ -36,15 +36,7 @@
     const webR = new WebR();
     await webR.init();
 
-    // ------ 1. Install data.table (returns a string to avoid conversion) ------
-    await webR.evalR(`
-      if (!requireNamespace("data.table", quietly = TRUE)) {
-        webr::install("data.table")
-      }
-      "installed"
-    `);
-
-    // ------ 2. Pre‑define LinRegPCR functions globally (returns "defined") ------
+    // ------ 1. Define all functions in R once, return "defined" ------
     await webR.evalR(`
       sg5_d2 <- function(y) {
         coef <- c(2, -1, -2, -1, 2) / 7
@@ -197,7 +189,7 @@
       "defined"
     `);
 
-    // ------ 3. DOM elements & file upload ------
+    // ------ 2. File upload handling ------
     const fileInput   = document.getElementById('csvFile');
     const wellSelect  = document.getElementById('wellSelect');
     const runBtn      = document.getElementById('runBtn');
@@ -228,7 +220,7 @@
       reader.readAsText(file);
     });
 
-    // ------ 4. Run analysis (returns a string "ok" or "error") ------
+    // ------ 3. Run analysis (returns "ok" or "error") ------
     runBtn.addEventListener('click', async () => {
       const well = wellSelect.value;
       if (!well || !csvContent) return;
@@ -238,13 +230,16 @@
       plotImage.src = '';
 
       try {
+        // Write uploaded file to virtual filesystem
         await webR.FS.writeFile({ path: '/data.csv', data: csvContent });
 
+        // R script that reads the data, runs plotter, and writes result.txt + plot.png
         const rRunCode = `
-          library(data.table)
-
           output_status <- tryCatch({
-            data <- fread("data.csv")
+            first_line <- readLines("data.csv", n = 1)
+            sep <- if (grepl("\t", first_line)) "\t" else ","
+            data <- read.table("data.csv", header = TRUE, sep = sep)
+
             res <- plotter(data, "${well}")
 
             writeLines(c(
@@ -292,9 +287,11 @@
 
         await webR.evalR(rRunCode);
 
+        // Read the generated files
         const resultRaw = await webR.FS.readFile('/result.txt', { encoding: 'utf8' });
         const plotArray = await webR.FS.readFile('/plot.png');
 
+        // Parse key:value pairs
         const lines = resultRaw.split('\n').filter(line => line.trim() !== '');
         const result = {};
         lines.forEach(line => {
