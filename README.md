@@ -77,7 +77,6 @@ We encourage others to routinely monitor agreement between genetic markers. Due 
 9. Bustin, Stephen A., et al. "MIQE 2.0: revision of the minimum information for publication of quantitative real-time PCR experiments guidelines." Clinical chemistry 71.6 (2025): 634-651.
 
 To be included: 
-- Cq cut-off
 - add visual figure to explain the problem of molecular detection of bacteria in polymicrobial settings. 
 - <del>reference to Marshall paper.</del>
 - <del>'BN' rule.</del>
