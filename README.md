@@ -88,6 +88,7 @@ To be included:
 - <del>options to enable 95% CI intervals of bias (mean/median difference) and LoAs.</del>
 - <del>options to enable predefined acceptable limits and adjust values.</del>
 - <del>data upload option for users to explore graphical tools with their own lab data.</del>
+- <del>PCR efficiency estimation tool</del>
 - section on Cq tresholds upon discovery of multi-modal Cq distribution.
 - section on linkage analysis with digital PCR.
 - link to online laboratory protocol (to be published).
