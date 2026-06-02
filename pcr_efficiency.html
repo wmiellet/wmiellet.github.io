@@ -2,16 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>LinRegPCR – WebR (base R, no packages)</title>
+  <title>LinRegPCR Efficiency (no plot)</title>
   <style>
     body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; }
     button, select, input { margin: 0.3rem; }
-    #plotImage { border: 1px solid #ccc; margin-top: 1rem; max-width: 100%; }
     pre { background: #f5f5f5; padding: 1rem; white-space: pre-wrap; }
   </style>
 </head>
 <body>
-  <h2>LinRegPCR Efficiency – Ruijter method (base R) v0.13</h2>
+  <h2>LinRegPCR Efficiency (Ruijter original method) v0.14</h2>
 
   <label>Upload CSV/TSV file:</label><br>
   <input type="file" id="csvFile" accept=".csv,.tsv,.txt"><br>
@@ -27,16 +26,22 @@
   <h3>Efficiency Result</h3>
   <pre id="resultText">Upload a file and click Run.</pre>
 
-  <h3>Plot</h3>
-  <img id="plotImage" alt="Plot will appear here">
-
   <script type="module">
-    import { WebR } from 'https://webr.r-wasm.org/latest/webr.mjs';
+    // ----- Stable WebR version -----
+    import { WebR } from 'https://webr.r-wasm.org/v0.4.1/webr.mjs';
 
     const webR = new WebR();
     await webR.init();
 
-    // ------ 1. Define all functions in R once, return "defined" ------
+    // ----- DOM elements -----
+    const fileInput   = document.getElementById('csvFile');
+    const wellSelect  = document.getElementById('wellSelect');
+    const runBtn      = document.getElementById('runBtn');
+    const resultText  = document.getElementById('resultText');
+
+    let csvContent = '';
+
+    // ----- Pre‑define the linreg_ruijter4_final function globally -----
     await webR.evalR(`
       sg5_d2 <- function(y) {
         coef <- c(2, -1, -2, -1, 2) / 7
@@ -50,58 +55,41 @@
         early5 <- median(F_raw[1:min(5, length(F_raw))])
         if ((max(F_raw) - min(F_raw)) < 0.1 * early5) {
           return(list(
-            baseline   = early5,
-            background = early5,
+            baseline   = early5, background = early5,
             F_corr     = F_raw - early5,
             SDM_initial = NA_real_, SDM_final = NA_real_,
             WoL_cycles = NA_real_, window_width = NA_integer_,
-            slope      = NA_real_,
-            E          = 1.0,
-            Eff_pct    = 0,
-            CV_slope   = NA_real_,
-            R_squared  = NA_real_,
-            converged  = FALSE
+            slope = NA_real_, E = 1.0, Eff_pct = 0,
+            CV_slope = NA_real_, R_squared = NA_real_, converged = FALSE
           ))
         }
-
         B_init <- min(F_raw)
         F_corr_init <- F_raw - B_init
-
         pos <- F_corr_init[F_corr_init > 0]
         if (length(pos) == 0 || max(F_corr_init) < 7 * min(pos)) stop("No amplification")
-
         d2_init <- sg5_d2(F_corr_init)
         SDM_init <- which.max(d2_init)
         if (is.na(SDM_init) || SDM_init < 5) stop("SDM too early")
-
         widths_to_test <- c(4L, 6L)
         best_overall_CV <- Inf
         best_result <- NULL
         bg_median <- median(F_raw[1:min(5, length(F_raw))])
-
         for (width in widths_to_test) {
           start <- SDM_init - width
           if (start < 1) next
-
           WoL_tentative <- start:(SDM_init - 1)
-
           slope_diff_fn <- function(Bcur) {
             F_win <- F_raw[WoL_tentative] - Bcur
             if (any(F_win <= 0)) return(NA)
             lnF <- log(F_win)
             half <- width %/% 2L
             cyc <- cycle[WoL_tentative]
-            fit_low <- lm(lnF[1:half] ~ cyc[1:half])
-            fit_upp <- lm(lnF[(half + 1):width] ~ cyc[(half + 1):width])
+            fit_low  <- lm(lnF[1:half] ~ cyc[1:half])
+            fit_upp  <- lm(lnF[(half+1):width] ~ cyc[(half+1):width])
             coef(fit_upp)[2] - coef(fit_low)[2]
           }
-
-          Bcur <- B_init
-          best_diff <- Inf
-          best_B <- Bcur
-          converged <- FALSE
-          B_found <- NULL
-
+          Bcur <- B_init; best_diff <- Inf; best_B <- Bcur
+          converged <- FALSE; B_found <- NULL
           for (iter in 1:100) {
             d <- slope_diff_fn(Bcur)
             if (is.na(d)) break
@@ -112,16 +100,11 @@
           }
           if (!converged && best_diff < Inf) { B_found <- best_B; converged <- FALSE }
           if (is.null(B_found)) next
-
           F_corr <- F_raw - B_found
-
           d2_final <- sg5_d2(F_corr)
           SDM_final <- which.max(d2_final)
           if (is.na(SDM_final) || SDM_final < 5) next
-
-          best_CV <- Inf
-          best_WoL <- NULL
-          best_fit <- NULL
+          best_CV <- Inf; best_WoL <- NULL; best_fit <- NULL
           for (end in (SDM_final - 1):width) {
             start_w <- end - width + 1
             if (start_w < 1) break
@@ -132,72 +115,38 @@
             fit <- lm(lnF ~ cyc_win)
             s <- summary(fit)
             coefs <- s$coefficients
-            if (any(is.na(coefs[, "Std. Error"]))) next
-            slope <- coefs[2, 1]; se <- coefs[2, 2]
+            if (any(is.na(coefs[,"Std. Error"]))) next
+            slope <- coefs[2,1]; se <- coefs[2,2]
             if (slope == 0) next
             CV <- se / abs(slope)
             if (is.na(CV)) next
             if (CV < best_CV) {
-              best_CV <- CV; best_WoL <- start_w:end; best_fit <- fit; best_summary <- s
+              best_CV <- CV; best_WoL <- start_w:end
+              best_fit <- fit; best_summary <- s
             }
           }
           if (is.null(best_WoL)) next
-
           slope <- coef(best_fit)[2]
           E <- exp(slope)
           candidate <- list(
-            baseline     = B_found,
-            background   = bg_median,
-            F_corr       = F_corr,
-            SDM_initial  = SDM_init,
-            SDM_final    = SDM_final,
-            WoL_cycles   = best_WoL,
-            window_width = width,
-            slope        = slope,
-            E            = E,
-            Eff_pct      = (E - 1) * 100,
-            CV_slope     = best_CV,
-            R_squared    = best_summary$r.squared,
-            converged    = converged
+            baseline = B_found, background = bg_median, F_corr = F_corr,
+            SDM_initial = SDM_init, SDM_final = SDM_final,
+            WoL_cycles = best_WoL, window_width = width,
+            slope = slope, E = E, Eff_pct = (E - 1)*100,
+            CV_slope = best_CV, R_squared = best_summary$r.squared,
+            converged = converged
           )
           if (best_CV < best_overall_CV) {
-            best_overall_CV <- best_CV
-            best_result <- candidate
+            best_overall_CV <- best_CV; best_result <- candidate
           }
         }
-
-        if (is.null(best_result)) stop("No valid window found for any tested width")
+        if (is.null(best_result)) stop("No valid window found")
         return(best_result)
       }
-
-      plotter <- function(data, well){
-        res <- linreg_ruijter4_final(data$Cycle, data[, eval(as.name(noquote(well)))])
-        png("plot.png", width = 600, height = 500)
-        par(mar = c(4,4,2,1))
-        plot(x = data$Cycle, y = log10(res$F_corr),
-             ylim = c(-2.5, 1.5), xlab = "Cycles", ylab = "log(corrected fluor)", xaxt = "n")
-        axis(side = 1, at = seq(0, max(data$Cycle), by = 5))
-        abline(h = log10(res$baseline), lty = "dashed", col = "blue")
-        abline(v = res$WoL_cycles[1], lty = "solid", col = "blue")
-        abline(v = res$WoL_cycles[res$window_width], lty = "solid", col = "blue")
-        abline(v = res$SDM_final, lty = "dotted", col = "orange")
-        dev.off()
-        return(res)
-      }
-
-      # Must return a simple string so WebR doesn't crash
-      "defined"
+      "ready"
     `);
 
-    // ------ 2. File upload handling ------
-    const fileInput   = document.getElementById('csvFile');
-    const wellSelect  = document.getElementById('wellSelect');
-    const runBtn      = document.getElementById('runBtn');
-    const resultText  = document.getElementById('resultText');
-    const plotImage   = document.getElementById('plotImage');
-
-    let csvContent = '';
-
+    // ----- File upload → populate well list -----
     fileInput.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -220,106 +169,76 @@
       reader.readAsText(file);
     });
 
-    // ------ 3. Run analysis (returns "ok" or "error") ------
+    // ----- Run analysis (returns a result string) -----
     runBtn.addEventListener('click', async () => {
       const well = wellSelect.value;
       if (!well || !csvContent) return;
 
       runBtn.disabled = true;
       resultText.textContent = 'Running LinRegPCR …';
-      plotImage.src = '';
 
       try {
-        // Write uploaded file to virtual filesystem
         await webR.FS.writeFile({ path: '/data.csv', data: csvContent });
 
-        // R script that reads the data, runs plotter, and writes result.txt + plot.png
-        const rRunCode = `
-          output_status <- tryCatch({
-            first_line <- readLines("data.csv", n = 1)
-            sep <- if (grepl("\t", first_line)) "\t" else ","
-            data <- read.table("data.csv", header = TRUE, sep = sep)
+        const rCode = `
+          first_line <- readLines("data.csv", n = 1)
+          sep <- if (grepl("\t", first_line)) "\t" else ","
+          data <- read.table("data.csv", header = TRUE, sep = sep)
 
-            res <- plotter(data, "${well}")
+          # Use data[[well]] – works for both data.frame and data.table
+          res <- tryCatch(
+            linreg_ruijter4_final(data$Cycle, data[["${well}"]]),
+            error = function(e) list(error = conditionMessage(e))
+          )
 
-            writeLines(c(
-              paste0("E:", res$E),
-              paste0("Eff_pct:", res$Eff_pct),
-              paste0("slope:", res$slope),
-              paste0("baseline:", res$baseline),
-              paste0("background:", res$background),
-              paste0("SDM_final:", res$SDM_final),
-              paste0("WoL_cycles:", paste(res$WoL_cycles, collapse = ",")),
-              paste0("window_width:", res$window_width),
-              paste0("CV_slope:", res$CV_slope),
-              paste0("R_squared:", res$R_squared),
-              paste0("converged:", res$converged),
-              "error:none"
-            ), "result.txt")
-
-            "ok"
-          }, error = function(e) {
-            png("plot.png", width = 600, height = 500)
-            plot.new()
-            text(0.5, 0.5, paste("Error:", conditionMessage(e)))
-            dev.off()
-
-            writeLines(c(
-              "E:NA",
-              "Eff_pct:NA",
-              "slope:NA",
-              "baseline:NA",
-              "background:NA",
-              "SDM_final:NA",
-              "WoL_cycles:",
-              "window_width:NA",
-              "CV_slope:NA",
-              "R_squared:NA",
-              "converged:FALSE",
-              paste0("error:", conditionMessage(e))
-            ), "result.txt")
-
-            "error"
-          })
-
-          output_status
+          if (!is.null(res$error)) {
+            paste0("error:", res$error)
+          } else {
+            paste0(
+              "E:", round(res$E, 6), ";",
+              "Eff_pct:", round(res$Eff_pct, 4), ";",
+              "slope:", round(res$slope, 6), ";",
+              "baseline:", round(res$baseline, 4), ";",
+              "background:", round(res$background, 4), ";",
+              "SDM_final:", res$SDM_final, ";",
+              "WoL_cycles:", paste(res$WoL_cycles, collapse = ","), ";",
+              "window_width:", res$window_width, ";",
+              "CV_slope:", round(res$CV_slope, 6), ";",
+              "R_squared:", round(res$R_squared, 6), ";",
+              "converged:", res$converged
+            )
+          }
         `;
 
-        await webR.evalR(rRunCode);
+        // evalR returns a string – safe in v0.4.1
+        const resultStr = await webR.evalR(rCode);
 
-        // Read the generated files
-        const resultRaw = await webR.FS.readFile('/result.txt', { encoding: 'utf8' });
-        const plotArray = await webR.FS.readFile('/plot.png');
-
-        // Parse key:value pairs
-        const lines = resultRaw.split('\n').filter(line => line.trim() !== '');
-        const result = {};
-        lines.forEach(line => {
-          const idx = line.indexOf(':');
-          if (idx > 0) {
-            const key = line.substring(0, idx).trim();
-            const val = line.substring(idx + 1).trim();
-            result[key] = val;
-          }
+        // Parse the returned string (format: key:value;key:value;...)
+        const kvPairs = resultStr.split(';').filter(s => s.includes(':'));
+        const parsed = {};
+        kvPairs.forEach(pair => {
+          const [key, val] = pair.split(':');
+          parsed[key.trim()] = val.trim();
         });
 
-        if (result.error && result.error !== 'none') {
-          resultText.textContent = '⚠️  LinRegPCR failed for this well:\n' + result.error;
+        if (parsed.error) {
+          resultText.textContent = '⚠️  LinRegPCR failed:\n' + parsed.error;
         } else {
-          let txt = `Efficiency (E): ${parseFloat(result.E).toFixed(4)}   (${parseFloat(result.Eff_pct).toFixed(2)} %)\n`;
-          txt += `Window of Linearity: cycles ${result.WoL_cycles} (width ${result.window_width})\n`;
-          txt += `SDM cycle: ${result.SDM_final}\n`;
-          txt += `Baseline (internal):  ${parseFloat(result.baseline).toFixed(2)}\n`;
-          txt += `Background (robust):  ${parseFloat(result.background).toFixed(2)}\n`;
-          txt += `Slope: ${parseFloat(result.slope).toFixed(6)}\n`;
-          txt += `R²: ${parseFloat(result.R_squared).toFixed(4)}\n`;
-          txt += `CV of slope: ${parseFloat(result.CV_slope).toFixed(6)}\n`;
-          txt += `Converged: ${result.converged}`;
-          resultText.textContent = txt;
+          let txt = '';
+          if (parsed.E) {
+            const E = parseFloat(parsed.E);
+            txt += `Efficiency (E): ${E.toFixed(4)}   (${parseFloat(parsed.Eff_pct).toFixed(2)} %)\n`;
+            txt += `Window of Linearity: cycles ${parsed.WoL_cycles} (width ${parsed.window_width})\n`;
+            txt += `SDM cycle: ${parsed.SDM_final}\n`;
+            txt += `Baseline (internal):  ${parseFloat(parsed.baseline).toFixed(2)}\n`;
+            txt += `Background (robust):  ${parseFloat(parsed.background).toFixed(2)}\n`;
+            txt += `Slope: ${parseFloat(parsed.slope).toFixed(6)}\n`;
+            txt += `R²: ${parseFloat(parsed.R_squared).toFixed(4)}\n`;
+            txt += `CV of slope: ${parseFloat(parsed.CV_slope).toFixed(6)}\n`;
+            txt += `Converged: ${parsed.converged}`;
+          }
+          resultText.textContent = txt || 'Unknown result.';
         }
-
-        const blob = new Blob([plotArray], { type: 'image/png' });
-        plotImage.src = URL.createObjectURL(blob);
       } catch (err) {
         resultText.textContent = 'JavaScript error: ' + err.message;
         console.error(err);
