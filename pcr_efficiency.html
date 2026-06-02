@@ -11,7 +11,7 @@
   </style>
 </head>
 <body>
-  <h2>LinRegPCR Efficiency (Ruijter original method) v0.4</h2>
+  <h2>LinRegPCR Efficiency (Ruijter original method) v0.5</h2>
 
   <label>Upload CSV/TSV file:</label><br>
   <input type="file" id="csvFile" accept=".csv,.tsv,.txt"><br>
@@ -44,7 +44,6 @@
 
     let csvContent = '';
 
-    // File upload → populate well list
     fileInput.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -67,7 +66,6 @@
       reader.readAsText(file);
     });
 
-    // Run analysis
     runBtn.addEventListener('click', async () => {
       const well = wellSelect.value;
       if (!well || !csvContent) return;
@@ -79,8 +77,10 @@
       try {
         await webR.FS.writeFile({ path: '/data.csv', data: csvContent });
 
-        // ----- R code (outer tryCatch catches EVERYTHING) -----
+        // ---------- R code (returns JSON string + plot) ----------
         const rCode = `
+          library(jsonlite)
+
           # 5-point Savitzky-Golay 2nd derivative
           sg5_d2 <- function(y) {
             coef <- c(2, -1, -2, -1, 2) / 7
@@ -98,13 +98,13 @@
                 baseline   = early5,
                 background = early5,
                 F_corr     = F_raw - early5,
-                SDM_initial = NA, SDM_final = NA,
-                WoL_cycles = NA, window_width = NA,
-                slope      = NA,
+                SDM_initial = NA_real_, SDM_final = NA_real_,
+                WoL_cycles = NA_real_, window_width = NA_integer_,
+                slope      = NA_real_,
                 E          = 1.0,
                 Eff_pct    = 0,
-                CV_slope   = NA,
-                R_squared  = NA,
+                CV_slope   = NA_real_,
+                R_squared  = NA_real_,
                 converged  = FALSE
               ))
             }
@@ -230,27 +230,24 @@
             return(res)
           }
 
-          # ----- Outer tryCatch: catches ANY error and returns a safe list -----
+          # Outer tryCatch – converts everything to a safe list with JSON
           safe_result <- tryCatch({
             first_line <- readLines("data.csv", n = 1)
             sep <- if (grepl("\t", first_line)) "\t" else ","
             data <- read.table("data.csv", header = TRUE, sep = sep)
-
-            # Run plotter (may fail for non‑amplifying wells)
             plotter(data, "${well}")
           }, error = function(e) {
-            # Return a list with an error message
             list(
-              baseline   = NA,
-              background = NA,
-              F_corr     = rep(NA, 0),
-              SDM_initial = NA, SDM_final = NA,
-              WoL_cycles = NA, window_width = NA,
-              slope      = NA,
-              E          = NA,
-              Eff_pct    = NA,
-              CV_slope   = NA,
-              R_squared  = NA,
+              baseline   = NA_real_,
+              background = NA_real_,
+              F_corr     = NA_real_,
+              SDM_initial = NA_real_, SDM_final = NA_real_,
+              WoL_cycles = NA_real_, window_width = NA_integer_,
+              slope      = NA_real_,
+              E          = NA_real_,
+              Eff_pct    = NA_real_,
+              CV_slope   = NA_real_,
+              R_squared  = NA_real_,
               converged  = FALSE,
               error      = conditionMessage(e)
             )
@@ -264,21 +261,25 @@
             dev.off()
           }
 
+          # Convert result list to JSON string (use jsonlite)
+          result_json <- toJSON(safe_result, auto_unbox = TRUE, null = "null", na = "null", digits = 10)
           plot_raw <- readBin("plot.png", "raw", file.info("plot.png")$size)
-          list(plot = plot_raw, result = safe_result)
+          list(plot = plot_raw, result_json = result_json)
         `;
 
         const output = await webR.evalR(rCode);
 
-        // Extract result list
-        const resultRObj = await output.get('result');
-        const resultJS   = await resultRObj.toJs();
+        // Get the plot (raw vector → Uint8Array)
+        const plotRObj  = await output.get('plot');
+        const plotArray = await plotRObj.toArray();
 
-        // Extract plot
-        const plotRObj   = await output.get('plot');
-        const plotArray  = await plotRObj.toArray();
+        // Get the JSON string (character vector → plain string)
+        const jsonRObj  = await output.get('result_json');
+        const jsonStr   = (await jsonRObj.toJs())[0];  // toJs returns a JS array of characters? Actually for a scalar character, toJs returns a JS array of strings (since R character vectors become arrays). So we take first element.
 
-        // Display
+        // Parse JSON
+        const resultJS = JSON.parse(jsonStr);
+
         if (resultJS.error) {
           resultText.textContent = '⚠️  LinRegPCR failed for this well:\n' + resultJS.error;
         } else {
