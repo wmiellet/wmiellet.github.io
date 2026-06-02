@@ -79,8 +79,8 @@ We encourage others to routinely monitor agreement between genetic markers. Due 
 To be included: 
 - Cq cut-off
 - add visual figure to explain the problem of molecular detection of bacteria in polymicrobial settings. 
-- reference to Marshall paper.
-- 'BN' rule.
+- <del>reference to Marshall paper.</del>
+- <del>'BN' rule.</del>
 - example data.
 - <del>options to assess ICC[3,1] (as quantitive agreement index), Cohen's kappa coefficients (as binary classification index).</del>
 - <del>options to compare correlation plot to X/Y plot.</del>
