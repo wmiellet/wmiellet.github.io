@@ -76,6 +76,9 @@ We encourage others to routinely monitor agreement between genetic markers. Due 
 8. Mulherin, Stephanie A., and William C. Miller. "Spectrum bias or spectrum effect? Subgroup variation in diagnostic test evaluation." Annals of Internal Medicine 137.7 (2002): 598-602.
 9. Bustin, Stephen A., et al. "MIQE 2.0: revision of the minimum information for publication of quantitative real-time PCR experiments guidelines." Clinical chemistry 71.6 (2025): 634-651.
 
+##### citation:
+Miellet, Willem R., et al. "It takes two to tango: combining conventional culture with molecular diagnostics enhances accuracy of Streptococcus pneumoniae detection and pneumococcal serogroup/serotype determination in carriage." Frontiers in microbiology 13 (2022): 859736.
+
 ###### To be included: 
 ###### - add visual figure to explain the problem of molecular detection of bacteria in polymicrobial settings. 
 ###### - <del>reference to Marshall paper.</del>
