@@ -96,4 +96,4 @@ To be included:
 
 
 ##### other links
-[pcr efficiency estimation](https://wmiellet.github.io/pcr_efficiency.html).
+[PCR efficiency estimation](https://wmiellet.github.io/pcr_efficiency.html).
