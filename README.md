@@ -76,21 +76,21 @@ We encourage others to routinely monitor agreement between genetic markers. Due 
 8. Mulherin, Stephanie A., and William C. Miller. "Spectrum bias or spectrum effect? Subgroup variation in diagnostic test evaluation." Annals of Internal Medicine 137.7 (2002): 598-602.
 9. Bustin, Stephen A., et al. "MIQE 2.0: revision of the minimum information for publication of quantitative real-time PCR experiments guidelines." Clinical chemistry 71.6 (2025): 634-651.
 
-To be included: 
-- add visual figure to explain the problem of molecular detection of bacteria in polymicrobial settings. 
-- <del>reference to Marshall paper.</del>
-- <del>'BN' rule.</del>
-- example data.
-- <del>options to assess ICC[3,1] (as quantitive agreement index), Cohen's kappa coefficients (as binary classification index).</del>
-- <del>options to compare correlation plot to X/Y plot.</del>
-- <del>options to transform BA plot to non-parametric LoAs or MAD-based LoAs.</del>
-- <del>options to enable 95% CI intervals of bias (mean/median difference) and LoAs.</del>
-- <del>options to enable predefined acceptable limits and adjust values.</del>
-- <del>data upload option for users to explore graphical tools with their own lab data.</del>
-- <del>PCR efficiency estimation tool</del>
-- section on Cq tresholds upon discovery of multi-modal Cq distribution.
-- section on linkage analysis with digital PCR.
-- link to online laboratory protocol (to be published).
+###### To be included: 
+###### - add visual figure to explain the problem of molecular detection of bacteria in polymicrobial settings. 
+###### - <del>reference to Marshall paper.</del>
+###### - <del>'BN' rule.</del>
+###### - example data.
+###### - <del>options to assess ICC[3,1] (as quantitive agreement index), Cohen's kappa coefficients (as binary classification index).</del>
+###### - <del>options to compare correlation plot to X/Y plot.</del>
+###### - <del>options to transform BA plot to non-parametric LoAs or MAD-based LoAs.</del>
+###### - <del>options to enable 95% CI intervals of bias (mean/median difference) and LoAs.</del>
+###### - <del>options to enable predefined acceptable limits and adjust values.</del>
+###### - <del>data upload option for users to explore graphical tools with their own lab data.</del>
+###### - <del>PCR efficiency estimation tool</del>
+###### - section on Cq tresholds upon discovery of multi-modal Cq distribution.
+###### - section on linkage analysis with digital PCR.
+###### - link to online laboratory protocol (to be published).
 
 ##### correspondence
 email: w.r.miellet-2(at)umcutrecht.nl
