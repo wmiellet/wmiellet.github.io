@@ -93,7 +93,7 @@ To be included:
 - link to online laboratory protocol (to be published).
 
 ##### correspondence
-
+email: w.r.miellet-2(at)umcutrecht.nl
 
 ##### other links
 [PCR efficiency estimation](https://wmiellet.github.io/pcr_efficiency.html).
