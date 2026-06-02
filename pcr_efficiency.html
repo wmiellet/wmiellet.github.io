@@ -11,7 +11,7 @@
   </style>
 </head>
 <body>
-  <h2>LinRegPCR Efficiency (Ruijter original method) v0.5</h2>
+  <h2>LinRegPCR Efficiency (Ruijter original method) v0.6 </h2>
 
   <label>Upload CSV/TSV file:</label><br>
   <input type="file" id="csvFile" accept=".csv,.tsv,.txt"><br>
@@ -77,11 +77,10 @@
       try {
         await webR.FS.writeFile({ path: '/data.csv', data: csvContent });
 
-        // ---------- R code (returns JSON string + plot) ----------
+        // ---------- R code (base R only, jsonlite is pre‑installed) ----------
         const rCode = `
-          library(jsonlite)
+          library(jsonlite)   # already available in WebR
 
-          # 5-point Savitzky-Golay 2nd derivative
           sg5_d2 <- function(y) {
             coef <- c(2, -1, -2, -1, 2) / 7
             n <- length(y)
@@ -90,7 +89,6 @@
             d2
           }
 
-          # Original LinRegPCR function (unchanged)
           linreg_ruijter4_final <- function(cycle, F_raw, tol = 1e-6) {
             early5 <- median(F_raw[1:min(5, length(F_raw))])
             if ((max(F_raw) - min(F_raw)) < 0.1 * early5) {
@@ -215,8 +213,9 @@
             return(best_result)
           }
 
+          # Your original plotter (base R subsetting)
           plotter <- function(data, well){
-            res <- linreg_ruijter4_final(data$Cycle, data[, well])
+            res <- linreg_ruijter4_final(data$Cycle, data[, eval(as.name(noquote(well)))])
             png("plot.png", width = 600, height = 500)
             par(mar = c(4,4,2,1))
             plot(x = data$Cycle, y = log10(res$F_corr),
@@ -230,7 +229,7 @@
             return(res)
           }
 
-          # Outer tryCatch – converts everything to a safe list with JSON
+          # Outer tryCatch – read with base R read.table (auto‑detect separator)
           safe_result <- tryCatch({
             first_line <- readLines("data.csv", n = 1)
             sep <- if (grepl("\t", first_line)) "\t" else ","
@@ -253,7 +252,6 @@
             )
           })
 
-          # If an error occurred, create a placeholder plot
           if (!is.null(safe_result$error)) {
             png("plot.png", width = 600, height = 500)
             plot.new()
@@ -261,7 +259,6 @@
             dev.off()
           }
 
-          # Convert result list to JSON string (use jsonlite)
           result_json <- toJSON(safe_result, auto_unbox = TRUE, null = "null", na = "null", digits = 10)
           plot_raw <- readBin("plot.png", "raw", file.info("plot.png")$size)
           list(plot = plot_raw, result_json = result_json)
@@ -269,15 +266,11 @@
 
         const output = await webR.evalR(rCode);
 
-        // Get the plot (raw vector → Uint8Array)
         const plotRObj  = await output.get('plot');
         const plotArray = await plotRObj.toArray();
 
-        // Get the JSON string (character vector → plain string)
         const jsonRObj  = await output.get('result_json');
-        const jsonStr   = (await jsonRObj.toJs())[0];  // toJs returns a JS array of characters? Actually for a scalar character, toJs returns a JS array of strings (since R character vectors become arrays). So we take first element.
-
-        // Parse JSON
+        const jsonStr   = (await jsonRObj.toJs())[0];
         const resultJS = JSON.parse(jsonStr);
 
         if (resultJS.error) {
