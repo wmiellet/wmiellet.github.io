@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>LinRegPCR – WebR (data.table, file‑based)</title>
+  <title>LinRegPCR – WebR (data.table, no jsonlite)</title>
   <style>
     body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; }
     button, select, input { margin: 0.3rem; }
@@ -11,7 +11,7 @@
   </style>
 </head>
 <body>
-  <h2>LinRegPCR Efficiency – Ruijter method (data.table) v0.8 </h2>
+  <h2>LinRegPCR Efficiency – Ruijter method (data.table) v0.9</h2>
 
   <label>Upload CSV/TSV file:</label><br>
   <input type="file" id="csvFile" accept=".csv,.tsv,.txt"><br>
@@ -36,18 +36,15 @@
     const webR = new WebR();
     await webR.init();
 
-    // ------ Ensure data.table is installed (once) ------
+    // ------ 1. Install data.table (if missing) ------
     await webR.evalR(`
       if (!requireNamespace("data.table", quietly = TRUE)) {
         webr::install("data.table")
       }
     `);
 
-    // ------ Pre‑define LinRegPCR functions globally in R ------
+    // ------ 2. Pre‑define LinRegPCR functions globally ------
     await webR.evalR(`
-      library(data.table)
-      library(jsonlite)
-
       sg5_d2 <- function(y) {
         coef <- c(2, -1, -2, -1, 2) / 7
         n <- length(y)
@@ -196,6 +193,7 @@
       }
     `);
 
+    // ------ 3. DOM elements & file upload logic ------
     const fileInput   = document.getElementById('csvFile');
     const wellSelect  = document.getElementById('wellSelect');
     const runBtn      = document.getElementById('runBtn');
@@ -226,6 +224,7 @@
       reader.readAsText(file);
     });
 
+    // ------ 4. Run analysis ------
     runBtn.addEventListener('click', async () => {
       const well = wellSelect.value;
       if (!well || !csvContent) return;
@@ -235,26 +234,48 @@
       plotImage.src = '';
 
       try {
+        // Write uploaded file to virtual filesystem
         await webR.FS.writeFile({ path: '/data.csv', data: csvContent });
 
-        // ------ The tiny R script that reads the CSV, runs the analysis, writes files ------
+        // R script that returns a SIMPLE list (all atomic, no complex objects)
         const rRunCode = `
           library(data.table)
-          library(jsonlite)
 
-          safe_result <- tryCatch({
+          safe_simple <- tryCatch({
             data <- fread("data.csv")
-            plotter(data, "${well}")
-          }, error = function(e) {
+            res <- plotter(data, "${well}")
+
+            # Return only simple values – no vectors, no raw data
             list(
-              baseline   = NA_real_,
-              background = NA_real_,
-              F_corr     = NA_real_,
-              SDM_initial = NA_real_, SDM_final = NA_real_,
-              WoL_cycles = NA_real_, window_width = NA_integer_,
-              slope      = NA_real_,
+              E          = res$E,
+              Eff_pct    = res$Eff_pct,
+              slope      = res$slope,
+              baseline   = res$baseline,
+              background = res$background,
+              SDM_final  = res$SDM_final,
+              WoL_cycles = paste(res$WoL_cycles, collapse = ", "),
+              window_width = res$window_width,
+              CV_slope   = res$CV_slope,
+              R_squared  = res$R_squared,
+              converged  = res$converged,
+              error      = NULL
+            )
+          }, error = function(e) {
+            # Create a placeholder plot for error cases
+            png("plot.png", width = 600, height = 500)
+            plot.new()
+            text(0.5, 0.5, paste("Error:", conditionMessage(e)))
+            dev.off()
+
+            list(
               E          = NA_real_,
               Eff_pct    = NA_real_,
+              slope      = NA_real_,
+              baseline   = NA_real_,
+              background = NA_real_,
+              SDM_final  = NA_real_,
+              WoL_cycles = "",
+              window_width = NA_integer_,
               CV_slope   = NA_real_,
               R_squared  = NA_real_,
               converged  = FALSE,
@@ -262,48 +283,35 @@
             )
           })
 
-          if (!is.null(safe_result$error)) {
-            # Create placeholder plot
-            png("plot.png", width = 600, height = 500)
-            plot.new()
-            text(0.5, 0.5, paste("Error:", safe_result$error))
-            dev.off()
-          }
-
-          # Write result as JSON file – always works, no JS object conversion
-          result_json <- toJSON(safe_result, auto_unbox = TRUE, null = "null", na = "null", digits = 10)
-          writeLines(result_json, "result.json")
-          invisible(NULL)
+          safe_simple
         `;
 
-        // This call may throw if R itself fails, so we catch it
-        await webR.evalR(rRunCode);
+        // This returns the simple list directly – safe conversion
+        const output = await webR.evalR(rRunCode);
+        const result = await output.toJs();
 
-        // Now read the files from the virtual filesystem – completely reliable
-        const resultJsonStr = await webR.FS.readFile('/result.json', { encoding: 'utf8' });
-        const resultJS = JSON.parse(resultJsonStr);
-
+        // Read the plot file (always exists after the R call)
         const plotArray = await webR.FS.readFile('/plot.png');
 
-        if (resultJS.error) {
-          resultText.textContent = '⚠️  LinRegPCR failed for this well:\n' + resultJS.error;
+        if (result.error) {
+          resultText.textContent = '⚠️  LinRegPCR failed for this well:\n' + result.error;
         } else {
-          let txt = `Efficiency (E): ${resultJS.E.toFixed(4)}   (${resultJS.Eff_pct.toFixed(2)} %)\n`;
-          txt += `Window of Linearity: cycles ${resultJS.WoL_cycles.join(', ')} (width ${resultJS.window_width})\n`;
-          txt += `SDM cycle: ${resultJS.SDM_final}\n`;
-          txt += `Baseline (internal):  ${resultJS.baseline.toFixed(2)}\n`;
-          txt += `Background (robust):  ${resultJS.background.toFixed(2)}\n`;
-          txt += `Slope: ${resultJS.slope.toFixed(6)}\n`;
-          txt += `R²: ${resultJS.R_squared.toFixed(4)}\n`;
-          txt += `CV of slope: ${resultJS.CV_slope.toFixed(6)}\n`;
-          txt += `Converged: ${resultJS.converged}`;
+          let txt = `Efficiency (E): ${result.E.toFixed(4)}   (${result.Eff_pct.toFixed(2)} %)\n`;
+          txt += `Window of Linearity: cycles ${result.WoL_cycles} (width ${result.window_width})\n`;
+          txt += `SDM cycle: ${result.SDM_final}\n`;
+          txt += `Baseline (internal):  ${result.baseline.toFixed(2)}\n`;
+          txt += `Background (robust):  ${result.background.toFixed(2)}\n`;
+          txt += `Slope: ${result.slope.toFixed(6)}\n`;
+          txt += `R²: ${result.R_squared.toFixed(4)}\n`;
+          txt += `CV of slope: ${result.CV_slope.toFixed(6)}\n`;
+          txt += `Converged: ${result.converged}`;
           resultText.textContent = txt;
         }
 
         const blob = new Blob([plotArray], { type: 'image/png' });
         plotImage.src = URL.createObjectURL(blob);
       } catch (err) {
-        resultText.textContent = 'Error: ' + err.message;
+        resultText.textContent = 'JavaScript error: ' + err.message;
         console.error(err);
       } finally {
         runBtn.disabled = false;
