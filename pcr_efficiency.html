@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>LinRegPCR – WebR Efficiency Analysis v0.3</title>
+  <title>LinRegPCR – WebR Efficiency Analysis</title>
   <style>
     body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; }
     button, select, input { margin: 0.3rem; }
@@ -11,7 +11,7 @@
   </style>
 </head>
 <body>
-  <h2>LinRegPCR Efficiency (Ruijter original method) v0.3</h2>
+  <h2>LinRegPCR Efficiency (Ruijter original method) v0.4</h2>
 
   <label>Upload CSV/TSV file:</label><br>
   <input type="file" id="csvFile" accept=".csv,.tsv,.txt"><br>
@@ -44,6 +44,7 @@
 
     let csvContent = '';
 
+    // File upload → populate well list
     fileInput.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -66,6 +67,7 @@
       reader.readAsText(file);
     });
 
+    // Run analysis
     runBtn.addEventListener('click', async () => {
       const well = wellSelect.value;
       if (!well || !csvContent) return;
@@ -77,7 +79,7 @@
       try {
         await webR.FS.writeFile({ path: '/data.csv', data: csvContent });
 
-        // ---------- Complete R code with robust error handling ----------
+        // ----- R code (outer tryCatch catches EVERYTHING) -----
         const rCode = `
           # 5-point Savitzky-Golay 2nd derivative
           sg5_d2 <- function(y) {
@@ -213,7 +215,6 @@
             return(best_result)
           }
 
-          # Plotter function (returns only the result list, plot saved separately)
           plotter <- function(data, well){
             res <- linreg_ruijter4_final(data$Cycle, data[, well])
             png("plot.png", width = 600, height = 500)
@@ -229,18 +230,20 @@
             return(res)
           }
 
-          # ---------- Read file & run with tryCatch ----------
-          first_line <- readLines("data.csv", n = 1)
-          sep <- if (grepl("\t", first_line)) "\t" else ","
-          data <- read.table("data.csv", header = TRUE, sep = sep)
+          # ----- Outer tryCatch: catches ANY error and returns a safe list -----
+          safe_result <- tryCatch({
+            first_line <- readLines("data.csv", n = 1)
+            sep <- if (grepl("\t", first_line)) "\t" else ","
+            data <- read.table("data.csv", header = TRUE, sep = sep)
 
-          # Wrap in tryCatch so errors become a list with an "error" field
-          result_list <- tryCatch(
-            plotter(data, "${well}"),
-            error = function(e) list(
+            # Run plotter (may fail for non‑amplifying wells)
+            plotter(data, "${well}")
+          }, error = function(e) {
+            # Return a list with an error message
+            list(
               baseline   = NA,
               background = NA,
-              F_corr     = rep(NA, nrow(data)),
+              F_corr     = rep(NA, 0),
               SDM_initial = NA, SDM_final = NA,
               WoL_cycles = NA, window_width = NA,
               slope      = NA,
@@ -251,19 +254,18 @@
               converged  = FALSE,
               error      = conditionMessage(e)
             )
-          )
+          })
 
-          # If no error, a plot.png already exists; otherwise we may not have one
-          if (!is.null(result_list$error)) {
-            # Create a blank placeholder plot
+          # If an error occurred, create a placeholder plot
+          if (!is.null(safe_result$error)) {
             png("plot.png", width = 600, height = 500)
             plot.new()
-            text(0.5,0.5, paste("Error:", result_list$error))
+            text(0.5, 0.5, paste("Error:", safe_result$error))
             dev.off()
           }
 
           plot_raw <- readBin("plot.png", "raw", file.info("plot.png")$size)
-          list(plot = plot_raw, result = result_list)
+          list(plot = plot_raw, result = safe_result)
         `;
 
         const output = await webR.evalR(rCode);
@@ -274,9 +276,9 @@
 
         // Extract plot
         const plotRObj   = await output.get('plot');
-        const plotArray  = await plotRObj.toArray();  // Uint8Array
+        const plotArray  = await plotRObj.toArray();
 
-        // Show error if present
+        // Display
         if (resultJS.error) {
           resultText.textContent = '⚠️  LinRegPCR failed for this well:\n' + resultJS.error;
         } else {
@@ -295,7 +297,7 @@
         const blob = new Blob([plotArray], { type: 'image/png' });
         plotImage.src = URL.createObjectURL(blob);
       } catch (err) {
-        resultText.textContent = 'Error: ' + err.message;
+        resultText.textContent = 'JavaScript error: ' + err.message;
         console.error(err);
       } finally {
         runBtn.disabled = false;
