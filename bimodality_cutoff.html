@@ -90,7 +90,7 @@
 </head>
 <body>
 <div class="container">
-    <div class="header"><h1>🔬 Bimodal Cq Analyzer v0.4</h1></div>
+    <div class="header"><h1>🔬 Bimodal Cq Analyzer v0.5</h1></div>
     <div id="status" style="text-align:center;font-size:0.9rem;color:#636e72;">Initializing WebR…</div>
 
     <div class="card">
@@ -112,7 +112,7 @@
                 <select id="colSelect" disabled><option>-- Upload CSV first --</option></select>
             </div>
             <div class="control-group">
-                <label for="threshold">Keep values &lt;</label>
+                <label for="threshold">Keep values &lt; threshold</label>
                 <input type="number" id="threshold" value="40" step="0.1" min="0" max="100">
             </div>
         </div>
@@ -206,12 +206,40 @@
         plotPlaceholder.textContent = 'Run analysis to see plot';
     }
 
-    // R analysis code (fixed syntax: proper braces for if-else)
+    // R analysis code with improved error handling
     function buildRCode(column, threshold) {
         return `
         dt <- read.csv('/data.csv', stringsAsFactors = FALSE, check.names = FALSE)
-        x_raw <- as.numeric(dt[["${column.replace(/"/g, '\\"')}"]])
         
+        # Check if column exists
+        if (!("${column.replace(/"/g, '\\"')}" %in% names(dt))) {
+          stop("Column '${column.replace(/"/g, '\\"')}' not found in CSV.")
+        }
+        
+        x_raw <- suppressWarnings(as.numeric(dt[["${column.replace(/"/g, '\\"')}"]]))
+        n_original <- length(x_raw)
+        n_na_before <- sum(is.na(x_raw))
+        
+        # Remove NAs
+        x_raw <- x_raw[!is.na(x_raw)]
+        n_after_na <- length(x_raw)
+        
+        # Apply threshold filter
+        thresh <- ${threshold}
+        if (!is.finite(thresh)) thresh <- Inf
+        x <- x_raw[x_raw < thresh]
+        n_used <- length(x)
+        
+        # Detailed error messages
+        if (n_original == 0) stop("The CSV file is empty or the column has no data.")
+        if (n_na_before == n_original) stop("All values in column '${column.replace(/"/g, '\\"')}' are non‑numeric (text/empty).")
+        if (n_used == 0) {
+          stop(paste0("After removing NAs (", n_original - n_after_na, " values) and applying threshold < ", thresh, 
+                      ", no data points remain. Check the threshold or column contents."))
+        }
+        if (n_used < 20) stop(paste0("Insufficient data: only ", n_used, " points remain. Need at least 20."))
+        
+        # EM algorithm for 2‑component normal mixture (unchanged)
         em_two_normals <- function(x, max_iter=800, tol=1e-6, n_starts=3) {
           n <- length(x)
           best_res <- NULL
@@ -285,11 +313,7 @@
           sort(roots)
         }
         
-        x <- x_raw[!is.na(x_raw) & is.finite(x_raw)]
-        if(${threshold} > 0 && is.finite(${threshold})) x <- x[x < ${threshold}]
-        n_used <- length(x)
-        if(n_used < 20) stop("Too few data points after filtering: ", n_used)
-        
+        # Model fitting
         mu0 <- mean(x); sigma0 <- max(sd(x),0.01)
         bic1 <- -2*sum(dnorm(x,mu0,sigma0,log=TRUE)) + 2*log(n_used)
         
@@ -300,7 +324,6 @@
         separation <- abs(em$mu1-em$mu2)/sqrt((em$sigma1^2+em$sigma2^2)/2)
         bic_diff <- bic1 - bic2
         
-        # Fixed: use braces to avoid line-break parsing error
         verdict <- if (bic_diff > 10 && separation > 2) {
           "Strongly Bimodal"
         } else if (bic_diff > 6 && separation > 1.5) {
@@ -317,6 +340,7 @@
           "Weakly Bimodal" = "bimodal-weak",
           "unimodal")
         
+        # Plot
         webr::canvas(width=700, height=450, canvas_id="plot-canvas-target")
         par(mar=c(4.5,4.5,2.5,1.5))
         hist(x, breaks=min(80,max(30,round(n_used/8))), freq=FALSE,
@@ -347,7 +371,8 @@
              sigma1=round(em$sigma1,3), sigma2=round(em$sigma2,3),
              lambda1=round(em$lambda1*100,1), lambda2=round(em$lambda2*100,1),
              cutoff=paste(round(cutoffs,3), collapse=", "),
-             n_used=n_used, n_total=length(x_raw), iter=em$iter)
+             n_used=n_used, n_original=n_original, n_na_before=n_na_before,
+             iter=em$iter)
         `;
     }
 
@@ -361,16 +386,12 @@
         setStatus('Analyzing…');
 
         try {
-            // Write CSV to virtual filesystem (must be Uint8Array)
             await webR.FS.writeFile('/data.csv', new TextEncoder().encode(csvText));
-
-            // Remove old canvas
             document.getElementById('plot-canvas-target')?.remove();
 
             const result = await webR.evalR(buildRCode(column, threshold));
             const res = await result.toObject();
 
-            // Wait for canvas to appear
             await new Promise(r => setTimeout(r, 200));
             const canvas = document.getElementById('plot-canvas-target');
             if (canvas) {
@@ -381,7 +402,6 @@
                 plotPlaceholder.textContent = 'Plot could not be displayed.';
             }
 
-            // Display results
             resultsCard.style.display = 'block';
             verdictBadge.textContent = res.verdict;
             verdictBadge.className = 'verdict ' + (res.verdict_class || 'unimodal');
@@ -396,7 +416,7 @@
                 ['SD₁ / SD₂', res.sigma1 + ' / ' + res.sigma2],
                 ['Mixing %', res.lambda1 + '% / ' + res.lambda2 + '%'],
                 ['Cutoff(s)', res.cutoff],
-                ['Data used', res.n_used + ' / ' + res.n_total],
+                ['Data points used', res.n_used + ' (from ' + (res.n_original || res.n_used) + ')'],
                 ['EM iterations', res.iter]
             ].map(([l, v]) => `<div class="result-badge"><div class="value">${v}</div><div class="label">${l}</div></div>`).join('');
 
@@ -404,7 +424,7 @@
         } catch (err) {
             console.error(err);
             plotPlaceholder.textContent = 'Error: ' + err.message;
-            setStatus('Error during analysis');
+            setStatus('Error during analysis – see plot area');
         }
     }
 
