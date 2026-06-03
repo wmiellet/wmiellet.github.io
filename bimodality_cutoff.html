@@ -90,7 +90,7 @@
 </head>
 <body>
 <div class="container">
-    <div class="header"><h1>🔬 Bimodal Cq Analyzer v0.6 </h1></div>
+    <div class="header"><h1>🔬 Bimodal Cq Analyzer v0.7</h1></div>
     <div id="status" style="text-align:center;font-size:0.9rem;color:#636e72;">Initializing WebR…</div>
 
     <div class="card">
@@ -153,21 +153,22 @@
 
     let webR;
     let csvText = '';
+    let csvDelimiter = ','; // <-- store detected delimiter
 
     function setStatus(msg) { statusEl.textContent = msg; }
 
-    // Parse CSV headers (remove BOM and quotes)
+    // Parse CSV headers and detect delimiter
     function parseCSV(text) {
-        // Remove BOM if present
         const cleanText = text.replace(/^\uFEFF/, '');
         const lines = cleanText.trim().split(/\r?\n/);
-        if (!lines.length) return { cols: [], rows: 0 };
+        if (!lines.length) return { cols: [], rows: 0, delim: ',' };
         let delim = ',';
         const first = lines[0];
         if (first.includes('\t')) delim = '\t';
         else if (first.includes(';')) delim = ';';
+        else if (first.includes('|')) delim = '|';
         const headers = first.split(delim).map(h => h.trim().replace(/^["']|["']$/g, ''));
-        return { cols: headers, rows: lines.length - 1 };
+        return { cols: headers, rows: lines.length - 1, delim: delim };
     }
 
     // File handling
@@ -176,9 +177,9 @@
         if (!file) return;
         const reader = new FileReader();
         reader.onload = ev => {
-            // Store CSV text after stripping BOM
             csvText = ev.target.result.replace(/^\uFEFF/, '');
-            const { cols, rows } = parseCSV(csvText);
+            const { cols, rows, delim } = parseCSV(csvText);
+            csvDelimiter = delim; // save delimiter for R
             fileNameEl.textContent = file.name;
             fileRowsEl.textContent = rows;
             fileColsEl.textContent = cols.length;
@@ -194,7 +195,7 @@
             colSelect.disabled = false;
             analyzeBtn.disabled = false;
             resetResults();
-            setStatus('CSV loaded');
+            setStatus(`CSV loaded (delimiter: ${delim === '\t' ? 'tab' : delim})`);
         };
         reader.readAsText(file);
     });
@@ -209,14 +210,14 @@
         plotPlaceholder.textContent = 'Run analysis to see plot';
     }
 
-    // Build R code with improved column existence check and BOM handling
-    function buildRCode(column, threshold) {
-        // Escape backslashes and quotes for safe injection into R string
+    // Build R code with detected delimiter
+    function buildRCode(column, threshold, delimiter) {
         const safeCol = column.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        // Properly escape delimiter for R string
+        const rSep = delimiter === '\t' ? '\\t' : delimiter;
         return `
-        dt <- read.csv('/data.csv', stringsAsFactors = FALSE, check.names = FALSE)
+        dt <- read.csv('/data.csv', stringsAsFactors = FALSE, check.names = FALSE, sep = '${rSep}')
         
-        # Check column existence and provide helpful error
         if (!("${safeCol}" %in% names(dt))) {
           stop(paste0("Column '${safeCol}' not found in CSV. Available columns: ",
                       paste(names(dt), collapse = ", ")))
@@ -242,7 +243,6 @@
         }
         if (n_used < 20) stop(paste0("Insufficient data: only ", n_used, " points remain. Need at least 20."))
         
-        # EM algorithm for 2‑component normal mixture
         em_two_normals <- function(x, max_iter=800, tol=1e-6, n_starts=3) {
           n <- length(x)
           best_res <- NULL
@@ -387,11 +387,10 @@
         setStatus('Analyzing…');
 
         try {
-            // Write to WebR virtual filesystem (already BOM‑free)
             await webR.FS.writeFile('/data.csv', new TextEncoder().encode(csvText));
             document.getElementById('plot-canvas-target')?.remove();
 
-            const result = await webR.evalR(buildRCode(column, threshold));
+            const result = await webR.evalR(buildRCode(column, threshold, csvDelimiter));
             const res = await result.toObject();
 
             await new Promise(r => setTimeout(r, 200));
@@ -432,7 +431,6 @@
 
     analyzeBtn.addEventListener('click', runAnalysis);
 
-    // Initialize WebR
     (async () => {
         try {
             webR = new WebR({ interactive: false });
