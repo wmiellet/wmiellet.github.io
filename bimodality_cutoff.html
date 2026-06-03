@@ -9,7 +9,6 @@
             --bg: #f5f6fa;
             --card-bg: #ffffff;
             --text: #2d3436;
-            --text-secondary: #636e72;
             --accent: #0984e3;
             --border: #dfe6e9;
             --shadow: 0 2px 10px rgba(0,0,0,0.05);
@@ -17,15 +16,14 @@
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+            font-family: 'Inter', system-ui, sans-serif;
             background: var(--bg);
             color: var(--text);
-            min-height: 100vh;
             padding: 20px;
         }
-        .container { max-width: 850px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
-        .header { text-align: center; padding: 10px 0; }
-        .header h1 { font-size: 1.8rem; font-weight: 700; color: #1a1a2e; }
+        .container { max-width: 850px; margin: auto; display: flex; flex-direction: column; gap: 18px; }
+        .header { text-align: center; }
+        .header h1 { font-size: 1.8rem; font-weight: 700; }
         .card {
             background: var(--card-bg);
             border-radius: var(--radius);
@@ -33,7 +31,7 @@
             box-shadow: var(--shadow);
             border: 1px solid var(--border);
         }
-        .card-title { font-weight: 700; font-size: 1.05rem; margin-bottom: 14px; color: #1a1a2e; }
+        .card-title { font-weight: 700; margin-bottom: 14px; }
         .upload-zone {
             border: 2px dashed var(--border);
             border-radius: var(--radius);
@@ -41,20 +39,16 @@
             text-align: center;
             cursor: pointer;
             background: #fafbfc;
-            transition: 0.2s;
             position: relative;
         }
         .upload-zone:hover, .upload-zone.drag-over { border-color: var(--accent); background: #f0f7ff; }
         .upload-zone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-        .upload-icon { font-size: 2.8rem; margin-bottom: 6px; }
-        .file-info { margin-top: 12px; font-size: 0.9rem; color: var(--accent); font-weight: 500; display: none; }
+        .file-info { margin-top: 12px; font-size: 0.9rem; color: var(--accent); display: none; }
         .file-info.visible { display: block; }
         .controls-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
         .control-group { flex: 1; min-width: 160px; display: flex; flex-direction: column; gap: 5px; }
-        .control-group label { font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; }
+        .control-group label { font-size: 0.8rem; font-weight: 600; color: #636e72; }
         select, input {
-            font-family: inherit;
-            font-size: 0.95rem;
             padding: 9px 12px;
             border: 1.5px solid var(--border);
             border-radius: 6px;
@@ -67,86 +61,74 @@
             border: none;
             border-radius: 6px;
             cursor: pointer;
-            font-size: 0.95rem;
+            background: var(--accent);
+            color: #fff;
             transition: 0.2s;
             white-space: nowrap;
         }
-        .btn-primary { background: var(--accent); color: #fff; }
-        .btn-primary:hover { background: #0767b3; box-shadow: 0 4px 12px rgba(9,132,227,0.25); }
-        .btn-primary:disabled { background: #b2bec3; cursor: not-allowed; }
-        .plot-container { text-align: center; min-height: 200px; background: #fafbfc; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
-        .plot-placeholder { color: var(--text-secondary); font-size: 0.9rem; padding: 40px; }
-        .results-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+        .btn:disabled { background: #b2bec3; cursor: not-allowed; }
+        .btn:hover:not(:disabled) { background: #0767b3; box-shadow: 0 4px 12px rgba(9,132,227,0.25); }
+        .plot-container {
+            text-align: center;
+            min-height: 200px;
+            background: #fafbfc;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .results-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
         .result-badge { background: #f8f9fa; border-radius: 6px; padding: 12px; text-align: center; border: 1px solid var(--border); }
-        .result-badge .value { font-size: 1.4rem; font-weight: 700; color: #1a1a2e; }
-        .result-badge .label { font-size: 0.75rem; color: #777; margin-top: 2px; }
+        .result-badge .value { font-size: 1.3rem; font-weight: 700; }
+        .result-badge .label { font-size: 0.75rem; color: #777; }
         .verdict { font-size: 1.1rem; font-weight: 700; padding: 8px 20px; border-radius: 20px; display: inline-block; }
         .verdict.bimodal-strong { background: #d4edda; color: #155724; }
         .verdict.bimodal-moderate { background: #fff3cd; color: #856404; }
         .verdict.bimodal-weak { background: #ffeaa7; color: #6c5b00; }
         .verdict.unimodal { background: #f1f3f4; color: #555; }
-        #statusBar { text-align: center; font-size: 0.85rem; color: var(--text-secondary); }
-        .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
-        .dot.ready { background: #00b894; }
-        .dot.loading { background: #fdcb6e; animation: pulse 1s infinite; }
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-        @media (max-width: 500px) {
-            .controls-row { flex-direction: column; }
-        }
     </style>
 </head>
 <body>
 <div class="container">
-    <div class="header"><h1>🔬 Bimodal Cq Distribution Analyzer</h1></div>
-    <div id="statusBar"><span class="dot loading"></span> Initializing WebR engine...</div>
+    <div class="header"><h1>🔬 Bimodal Cq Analyzer v0.3 </h1></div>
+    <div id="status" style="text-align:center;font-size:0.9rem;color:#636e72;">Initializing WebR…</div>
 
-    <!-- Upload -->
     <div class="card">
         <div class="card-title">📁 Upload CSV</div>
         <div class="upload-zone" id="uploadZone">
-            <div class="upload-icon">📤</div>
-            <div>Click to upload or drag &amp; drop</div>
+            <div>📤 Click or drop CSV here</div>
             <input type="file" id="fileInput" accept=".csv">
         </div>
         <div class="file-info" id="fileInfo">
-            ✅ <span id="fileName"></span> · <span id="fileRowCount"></span> rows · <span id="fileColCount"></span> columns
+            ✅ <span id="fileName"></span> · <span id="fileRows"></span> rows · <span id="fileCols"></span> columns
         </div>
     </div>
 
-    <!-- Configuration -->
     <div class="card">
-        <div class="card-title">⚙️ Analysis Settings</div>
+        <div class="card-title">⚙️ Settings</div>
         <div class="controls-row">
             <div class="control-group">
                 <label for="colSelect">Cq Column</label>
-                <select id="colSelect" disabled>
-                    <option value="">-- Upload CSV first --</option>
-                </select>
+                <select id="colSelect" disabled><option>-- Upload CSV first --</option></select>
             </div>
             <div class="control-group">
-                <label for="thresholdInput">Keep values &lt; threshold</label>
-                <input type="number" id="thresholdInput" value="40" step="0.1" min="0" max="100">
+                <label for="threshold">Keep values &lt;</label>
+                <input type="number" id="threshold" value="40" step="0.1" min="0" max="100">
             </div>
         </div>
-        <div style="margin-top:16px;">
-            <button class="btn btn-primary" id="analyzeBtn" disabled>🔍 Analyze Bimodality</button>
-        </div>
+        <button class="btn" id="analyzeBtn" disabled style="margin-top:16px;">🔍 Analyze Bimodality</button>
     </div>
 
-    <!-- Plot -->
     <div class="card">
         <div class="card-title">📈 Histogram & Mixture Model</div>
         <div class="plot-container" id="plotContainer">
-            <div class="plot-placeholder" id="plotPlaceholder">Run an analysis to see the plot here.</div>
+            <div id="plotPlaceholder" style="color:#636e72;">Run analysis to see plot</div>
         </div>
     </div>
 
-    <!-- Results -->
     <div class="card" id="resultsCard" style="display:none;">
         <div class="card-title">📊 Results</div>
-        <div style="text-align:center; margin-bottom:16px;">
-            <span class="verdict" id="verdictBadge"></span>
-        </div>
+        <div style="text-align:center; margin-bottom:16px;"><span class="verdict" id="verdictBadge"></span></div>
         <div class="results-grid" id="resultsGrid"></div>
     </div>
 </div>
@@ -154,17 +136,14 @@
 <script type="module">
     import { WebR } from 'https://webr.r-wasm.org/latest/webr.mjs';
 
-    // ── DOM refs ──
-    const statusDot = document.querySelector('#statusBar .dot');
-    const statusText = document.querySelector('#statusBar');
-    const uploadZone = document.getElementById('uploadZone');
+    const statusEl = document.getElementById('status');
     const fileInput = document.getElementById('fileInput');
     const fileInfo = document.getElementById('fileInfo');
     const fileNameEl = document.getElementById('fileName');
-    const fileRowCountEl = document.getElementById('fileRowCount');
-    const fileColCountEl = document.getElementById('fileColCount');
+    const fileRowsEl = document.getElementById('fileRows');
+    const fileColsEl = document.getElementById('fileCols');
     const colSelect = document.getElementById('colSelect');
-    const thresholdInput = document.getElementById('thresholdInput');
+    const thresholdInput = document.getElementById('threshold');
     const analyzeBtn = document.getElementById('analyzeBtn');
     const plotContainer = document.getElementById('plotContainer');
     const plotPlaceholder = document.getElementById('plotPlaceholder');
@@ -172,308 +151,270 @@
     const verdictBadge = document.getElementById('verdictBadge');
     const resultsGrid = document.getElementById('resultsGrid');
 
-    let webR = null;
-    let webRReady = false;
-    let csvData = null;      // raw CSV text
-    let csvColumns = [];
-    let csvRowCount = 0;
-    let currentPlotCanvas = null;
+    let webR;
+    let csvText = '';
 
-    function setStatus(state, text) {
-        statusDot.className = 'dot ' + state;
-        statusText.innerHTML = `<span class="dot ${state}"></span>${text}`;
-    }
+    function setStatus(msg) { statusEl.textContent = msg; }
 
-    async function initWebR() {
-        setStatus('loading', 'Downloading WebR engine...');
-        try {
-            webR = new WebR({ interactive: false });
-            await webR.init();
-            webRReady = true;
-            setStatus('ready', 'WebR ready. Upload a CSV file.');
-        } catch (err) {
-            setStatus('error', 'WebR initialization failed.');
-            console.error(err);
-        }
-    }
-
-    // Parse CSV headers (JS side)
+    // Parse CSV headers
     function parseCSV(text) {
         const lines = text.trim().split(/\r?\n/);
-        if (!lines.length) return { columns: [], rowCount: 0, delimiter: ',' };
+        if (!lines.length) return { cols: [], rows: 0 };
         let delim = ',';
         const first = lines[0];
         if (first.includes('\t')) delim = '\t';
         else if (first.includes(';')) delim = ';';
-        else if (first.includes('|')) delim = '|';
         const headers = first.split(delim).map(h => h.trim().replace(/^["']|["']$/g, ''));
-        return { columns: headers, rowCount: lines.length - 1, delimiter: delim };
+        return { cols: headers, rows: lines.length - 1 };
     }
 
-    function handleFile(file) {
-        if (!file.name.toLowerCase().endsWith('.csv')) {
-            alert('Please select a CSV file.');
-            return;
-        }
+    // File handling
+    fileInput.addEventListener('change', e => {
+        const file = e.target.files[0];
+        if (!file) return;
         const reader = new FileReader();
-        reader.onload = (e) => {
-            csvData = e.target.result;
-            const info = parseCSV(csvData);
-            csvColumns = info.columns;
-            csvRowCount = info.rowCount;
+        reader.onload = ev => {
+            csvText = ev.target.result;
+            const { cols, rows } = parseCSV(csvText);
             fileNameEl.textContent = file.name;
-            fileRowCountEl.textContent = csvRowCount.toLocaleString();
-            fileColCountEl.textContent = csvColumns.length;
+            fileRowsEl.textContent = rows;
+            fileColsEl.textContent = cols.length;
             fileInfo.classList.add('visible');
-            colSelect.innerHTML = '<option value="">-- Select Cq column --</option>';
-            csvColumns.forEach(col => {
+            colSelect.innerHTML = '<option value="">-- Select column --</option>';
+            cols.forEach(col => {
                 const opt = document.createElement('option');
                 opt.value = col;
                 opt.textContent = col;
-                const lower = col.toLowerCase();
-                if (lower.includes('cq') || lower.includes('ct') || lower.includes('pia')) opt.selected = true;
+                if (col.toLowerCase().includes('cq') || col.toLowerCase().includes('ct')) opt.selected = true;
                 colSelect.appendChild(opt);
             });
             colSelect.disabled = false;
             analyzeBtn.disabled = false;
             resetResults();
-            setStatus('ready', `Loaded ${file.name}`);
+            setStatus('CSV loaded');
         };
         reader.readAsText(file);
-    }
-
-    fileInput.addEventListener('change', (e) => {
-        if (e.target.files.length) handleFile(e.target.files[0]);
-    });
-    uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
-    uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
-    uploadZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        uploadZone.classList.remove('drag-over');
-        if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
     });
 
     function resetResults() {
         resultsCard.style.display = 'none';
-        verdictBadge.textContent = '';
         verdictBadge.className = 'verdict';
+        verdictBadge.textContent = '';
         resultsGrid.innerHTML = '';
-        if (currentPlotCanvas?.parentNode) currentPlotCanvas.parentNode.removeChild(currentPlotCanvas);
-        currentPlotCanvas = null;
+        plotContainer.querySelectorAll('canvas').forEach(c => c.remove());
         plotPlaceholder.style.display = 'block';
-        plotPlaceholder.textContent = 'Run an analysis to see the plot here.';
+        plotPlaceholder.textContent = 'Run analysis to see plot';
     }
 
-    // ── R analysis code (only uses uploaded CSV) ──
+    // R analysis code (will be eval'd by WebR)
     function buildRCode(column, threshold) {
         return `
-# Read CSV
-dt <- read.csv('/home/webr/data.csv', stringsAsFactors = FALSE, check.names = FALSE)
-x_raw <- as.numeric(dt[["${column.replace(/"/g, '\\"')}"]])
-
-# Custom EM for 2-component normal mixture
-em_two_normals <- function(x, max_iter=800, tol=1e-6, n_starts=3) {
-  n <- length(x)
-  best_res <- NULL
-  best_ll <- -Inf
-  for(start in 1:n_starts){
-    if(start==1) sp <- median(x)
-    else if(start==2) sp <- quantile(x, 0.45)
-    else sp <- quantile(x, 0.35 + 0.05*start)
-    g1 <- x[x <= sp]; g2 <- x[x > sp]
-    if(length(g1)<3 || length(g2)<3) next
-    mu1 <- mean(g1); mu2 <- mean(g2)
-    sigma1 <- max(sd(g1), 0.01); sigma2 <- max(sd(g2), 0.01)
-    lambda1 <- length(g1)/n; lambda2 <- 1-lambda1
-    ll_old <- -Inf
-    for(iter in 1:max_iter){
-      resp1 <- lambda1*dnorm(x,mu1,sigma1)
-      resp2 <- lambda2*dnorm(x,mu2,sigma2)
-      total <- resp1+resp2; total[total<1e-300] <- 1e-300
-      resp1 <- resp1/total; resp2 <- resp2/total
-      lambda1 <- mean(resp1); lambda2 <- 1-lambda1
-      mu1 <- sum(resp1*x)/sum(resp1)
-      mu2 <- sum(resp2*x)/sum(resp2)
-      sigma1 <- sqrt(sum(resp1*(x-mu1)^2)/sum(resp1))
-      sigma2 <- sqrt(sum(resp2*(x-mu2)^2)/sum(resp2))
-      if(sigma1<0.005) sigma1=0.01
-      if(sigma2<0.005) sigma2=0.01
-      if(lambda1<0.02) lambda1=0.02
-      if(lambda1>0.98) lambda1=0.98
-      lambda2 <- 1-lambda1
-      ll_new <- sum(log(lambda1*dnorm(x,mu1,sigma1)+lambda2*dnorm(x,mu2,sigma2)))
-      if(abs(ll_new-ll_old)<tol) break
-      ll_old <- ll_new
-    }
-    if(is.finite(ll_old) && ll_old>best_ll){
-      best_ll <- ll_old
-      best_res <- list(mu1=mu1,mu2=mu2,sigma1=sigma1,sigma2=sigma2,lambda1=lambda1,lambda2=lambda2,logLik=ll_old,iter=iter)
-    }
-  }
-  if(is.null(best_res)){
-    m <- median(x); g1 <- x[x<=m]; g2 <- x[x>m]
-    best_res <- list(mu1=mean(g1),mu2=mean(g2),sigma1=max(sd(g1),0.05),sigma2=max(sd(g2),0.05),
-                     lambda1=length(g1)/n,lambda2=length(g2)/n,logLik=-Inf,iter=0)
-  }
-  if(best_res$mu1>best_res$mu2){
-    tmp <- best_res$mu1; best_res$mu1 <- best_res$mu2; best_res$mu2 <- tmp
-    tmp <- best_res$sigma1; best_res$sigma1 <- best_res$sigma2; best_res$sigma2 <- tmp
-    tmp <- best_res$lambda1; best_res$lambda1 <- best_res$lambda2; best_res$lambda2 <- tmp
-  }
-  best_res
-}
-
-find_cutoffs <- function(mu1,mu2,sigma1,sigma2,lambda1){
-  lambda2 <- 1-lambda1
-  f <- function(x) lambda1*dnorm(x,mu1,sigma1) - lambda2*dnorm(x,mu2,sigma2)
-  lo <- min(mu1-4*sigma1, mu2-4*sigma2)
-  hi <- max(mu1+4*sigma1, mu2+4*sigma2)
-  grid <- seq(lo,hi,length.out=300)
-  vals <- sapply(grid,f)
-  roots <- c()
-  for(i in 1:(length(grid)-1)){
-    if(is.finite(vals[i]) && is.finite(vals[i+1]) && vals[i]*vals[i+1]<=0){
-      tryCatch({
-        r <- uniroot(f, c(grid[i],grid[i+1]), tol=1e-6)$root
-        if(length(roots)==0 || min(abs(r-roots))>0.05) roots <- c(roots,r)
-      }, error=function(e){})
-    }
-  }
-  if(length(roots)==0) roots <- (mu1*lambda2 + mu2*lambda1)/(lambda1+lambda2)
-  sort(roots)
-}
-
-# Filter data
-threshold <- ${threshold}
-x <- x_raw[!is.na(x_raw) & is.finite(x_raw)]
-if(is.finite(threshold) && threshold>0) x <- x[x < threshold]
-n_used <- length(x)
-if(n_used < 20) stop(paste("Insufficient data:", n_used, "points after filtering."))
-
-# Fit single normal
-mu0 <- mean(x); sigma0 <- max(sd(x), 0.01)
-bic1 <- -2*sum(dnorm(x,mu0,sigma0,log=TRUE)) + 2*log(n_used)
-
-# Fit mixture
-em <- em_two_normals(x)
-bic2 <- -2*em$logLik + 5*log(n_used)
-
-cutoffs <- find_cutoffs(em$mu1,em$mu2,em$sigma1,em$sigma2,em$lambda1)
-separation <- abs(em$mu1-em$mu2)/sqrt((em$sigma1^2+em$sigma2^2)/2)
-bic_diff <- bic1 - bic2
-
-verdict <- if(bic_diff>10 && separation>2) "Strongly Bimodal"
-           else if(bic_diff>6 && separation>1.5) "Moderately Bimodal"
-           else if(bic_diff>2 && separation>1) "Weakly Bimodal"
-           else "Not Clearly Bimodal"
-verdict_class <- switch(verdict,
-                        "Strongly Bimodal"="bimodal-strong",
-                        "Moderately Bimodal"="bimodal-moderate",
-                        "Weakly Bimodal"="bimodal-weak",
-                        "unimodal")
-
-# Plot
-webr::canvas(width=700, height=450, canvas_id="plot-canvas-target")
-par(mar=c(4.5,4.5,2.5,1.5))
-hist(x, breaks=min(80, max(30, round(n_used/8))), freq=FALSE, col="#dfe6e9", border="white",
-     xlab="Cq Value", ylab="Density", main=paste0("Cq Distribution (n=",n_used,")"))
-xx <- seq(min(x)-0.5, max(x)+0.5, length.out=400)
-comp1 <- em$lambda1*dnorm(xx,em$mu1,em$sigma1)
-comp2 <- em$lambda2*dnorm(xx,em$mu2,em$sigma2)
-lines(xx, comp1, col="#0984e3", lwd=2, lty=2)
-lines(xx, comp2, col="#00b894", lwd=2, lty=2)
-lines(xx, comp1+comp2, col="#e17055", lwd=2.5)
-for(v in cutoffs) abline(v=v, lty=2, lwd=2, col="#6c5ce7")
-if(length(cutoffs)>=2){
-  idx <- which(xx>=cutoffs[1] & xx<=cutoffs[2])
-  polygon(c(cutoffs[1],xx[idx],cutoffs[2]), c(0,(comp1+comp2)[idx],0),
-          col=rgb(108,92,231,30,maxColorValue=255), border=NA)
-}
-legend("topright", c("Comp.1","Comp.2","Mixture","Cutoff"),
-       col=c("#0984e3","#00b894","#e17055","#6c5ce7"),
-       lwd=c(2,2,2.5,2), lty=c(2,2,1,2), bg="white", box.lwd=0.5, cex=0.85)
-dev.off()
-
-list(verdict=verdict, verdict_class=verdict_class,
-     bic1=round(bic1,2), bic2=round(bic2,2), bic_diff=round(bic_diff,2),
-     separation=round(separation,3),
-     mu1=round(em$mu1,3), mu2=round(em$mu2,3),
-     sigma1=round(em$sigma1,3), sigma2=round(em$sigma2,3),
-     lambda1=round(em$lambda1*100,1), lambda2=round(em$lambda2*100,1),
-     cutoff=paste(round(cutoffs,3), collapse=", "),
-     cutoff_vals=round(cutoffs,3),
-     n_used=n_used, n_total=length(x_raw), iter=em$iter)
-`;
+        dt <- read.csv('/data.csv', stringsAsFactors = FALSE, check.names = FALSE)
+        x_raw <- as.numeric(dt[["${column.replace(/"/g, '\\"')}"]])
+        
+        em_two_normals <- function(x, max_iter=800, tol=1e-6, n_starts=3) {
+          n <- length(x)
+          best_res <- NULL
+          best_ll <- -Inf
+          for(start in 1:n_starts){
+            if(start==1) sp <- median(x)
+            else if(start==2) sp <- quantile(x, 0.45)
+            else sp <- quantile(x, 0.35+0.05*start)
+            g1 <- x[x <= sp]; g2 <- x[x > sp]
+            if(length(g1)<3 || length(g2)<3) next
+            mu1 <- mean(g1); mu2 <- mean(g2)
+            sigma1 <- max(sd(g1),0.01); sigma2 <- max(sd(g2),0.01)
+            lambda1 <- length(g1)/n; lambda2 <- 1-lambda1
+            ll_old <- -Inf
+            for(iter in 1:max_iter){
+              resp1 <- lambda1*dnorm(x,mu1,sigma1)
+              resp2 <- lambda2*dnorm(x,mu2,sigma2)
+              total <- resp1+resp2; total[total<1e-300] <- 1e-300
+              resp1 <- resp1/total; resp2 <- resp2/total
+              lambda1 <- mean(resp1); lambda2 <- 1-lambda1
+              mu1 <- sum(resp1*x)/sum(resp1)
+              mu2 <- sum(resp2*x)/sum(resp2)
+              sigma1 <- sqrt(sum(resp1*(x-mu1)^2)/sum(resp1))
+              sigma2 <- sqrt(sum(resp2*(x-mu2)^2)/sum(resp2))
+              if(sigma1<0.005) sigma1=0.01
+              if(sigma2<0.005) sigma2=0.01
+              if(lambda1<0.02) lambda1=0.02
+              if(lambda1>0.98) lambda1=0.98
+              lambda2 <- 1-lambda1
+              ll_new <- sum(log(lambda1*dnorm(x,mu1,sigma1)+lambda2*dnorm(x,mu2,sigma2)))
+              if(abs(ll_new-ll_old)<tol) break
+              ll_old <- ll_new
+            }
+            if(is.finite(ll_old) && ll_old>best_ll){
+              best_ll <- ll_old
+              best_res <- list(mu1=mu1,mu2=mu2,sigma1=sigma1,sigma2=sigma2,
+                               lambda1=lambda1,lambda2=lambda2,logLik=ll_old,iter=iter)
+            }
+          }
+          if(is.null(best_res)){
+            m <- median(x); g1 <- x[x<=m]; g2 <- x[x>m]
+            best_res <- list(mu1=mean(g1),mu2=mean(g2),
+                             sigma1=max(sd(g1),0.05),sigma2=max(sd(g2),0.05),
+                             lambda1=length(g1)/n,lambda2=length(g2)/n,logLik=-Inf,iter=0)
+          }
+          if(best_res$mu1>best_res$mu2){
+            swap <- function(x,y){}
+            tmp <- best_res$mu1; best_res$mu1 <- best_res$mu2; best_res$mu2 <- tmp
+            tmp <- best_res$sigma1; best_res$sigma1 <- best_res$sigma2; best_res$sigma2 <- tmp
+            tmp <- best_res$lambda1; best_res$lambda1 <- best_res$lambda2; best_res$lambda2 <- tmp
+          }
+          best_res
+        }
+        
+        find_cutoffs <- function(mu1,mu2,sigma1,sigma2,lambda1){
+          lambda2 <- 1-lambda1
+          f <- function(x) lambda1*dnorm(x,mu1,sigma1) - lambda2*dnorm(x,mu2,sigma2)
+          lo <- min(mu1-4*sigma1, mu2-4*sigma2)
+          hi <- max(mu1+4*sigma1, mu2+4*sigma2)
+          grid <- seq(lo,hi,length.out=300)
+          vals <- sapply(grid,f)
+          roots <- c()
+          for(i in 1:(length(grid)-1)){
+            if(is.finite(vals[i]) && is.finite(vals[i+1]) && vals[i]*vals[i+1]<=0){
+              tryCatch({
+                r <- uniroot(f, c(grid[i],grid[i+1]), tol=1e-6)$root
+                if(length(roots)==0 || min(abs(r-roots))>0.05) roots <- c(roots,r)
+              }, error=function(e){})
+            }
+          }
+          if(length(roots)==0) roots <- (mu1*lambda2 + mu2*lambda1)/(lambda1+lambda2)
+          sort(roots)
+        }
+        
+        x <- x_raw[!is.na(x_raw) & is.finite(x_raw)]
+        if(${threshold} > 0 && is.finite(${threshold})) x <- x[x < ${threshold}]
+        n_used <- length(x)
+        if(n_used < 20) stop("Too few data points after filtering: ", n_used)
+        
+        mu0 <- mean(x); sigma0 <- max(sd(x),0.01)
+        bic1 <- -2*sum(dnorm(x,mu0,sigma0,log=TRUE)) + 2*log(n_used)
+        
+        em <- em_two_normals(x)
+        bic2 <- -2*em$logLik + 5*log(n_used)
+        
+        cutoffs <- find_cutoffs(em$mu1,em$mu2,em$sigma1,em$sigma2,em$lambda1)
+        separation <- abs(em$mu1-em$mu2)/sqrt((em$sigma1^2+em$sigma2^2)/2)
+        bic_diff <- bic1 - bic2
+        
+        verdict <- if(bic_diff>10 && separation>2) "Strongly Bimodal"
+                   else if(bic_diff>6 && separation>1.5) "Moderately Bimodal"
+                   else if(bic_diff>2 && separation>1) "Weakly Bimodal"
+                   else "Not Clearly Bimodal"
+        verdict_class <- switch(verdict,
+                                "Strongly Bimodal"="bimodal-strong",
+                                "Moderately Bimodal"="bimodal-moderate",
+                                "Weakly Bimodal"="bimodal-weak",
+                                "unimodal")
+        
+        webr::canvas(width=700, height=450, canvas_id="plot-canvas-target")
+        par(mar=c(4.5,4.5,2.5,1.5))
+        hist(x, breaks=min(80,max(30,round(n_used/8))), freq=FALSE,
+             col="#dfe6e9", border="white", xlab="Cq Value", ylab="Density",
+             main=paste0("Cq Distribution (n=",n_used,")"))
+        xx <- seq(min(x)-0.5, max(x)+0.5, length.out=400)
+        comp1 <- em$lambda1*dnorm(xx,em$mu1,em$sigma1)
+        comp2 <- em$lambda2*dnorm(xx,em$mu2,em$sigma2)
+        lines(xx, comp1, col="#0984e3", lwd=2, lty=2)
+        lines(xx, comp2, col="#00b894", lwd=2, lty=2)
+        lines(xx, comp1+comp2, col="#e17055", lwd=2.5)
+        for(v in cutoffs) abline(v=v, lty=2, lwd=2, col="#6c5ce7")
+        if(length(cutoffs)>=2){
+          idx <- which(xx>=cutoffs[1] & xx<=cutoffs[2])
+          polygon(c(cutoffs[1],xx[idx],cutoffs[2]),
+                  c(0,(comp1+comp2)[idx],0),
+                  col=rgb(108,92,231,30,maxColorValue=255), border=NA)
+        }
+        legend("topright", c("Comp.1","Comp.2","Mixture","Cutoff"),
+               col=c("#0984e3","#00b894","#e17055","#6c5ce7"),
+               lwd=c(2,2,2.5,2), lty=c(2,2,1,2), bg="white", box.lwd=0.5, cex=0.85)
+        dev.off()
+        
+        list(verdict=verdict, verdict_class=verdict_class,
+             bic1=round(bic1,2), bic2=round(bic2,2), bic_diff=round(bic_diff,2),
+             separation=round(separation,3),
+             mu1=round(em$mu1,3), mu2=round(em$mu2,3),
+             sigma1=round(em$sigma1,3), sigma2=round(em$sigma2,3),
+             lambda1=round(em$lambda1*100,1), lambda2=round(em$lambda2*100,1),
+             cutoff=paste(round(cutoffs,3), collapse=", "),
+             n_used=n_used, n_total=length(x_raw), iter=em$iter)
+        `;
     }
 
     async function runAnalysis() {
-        if (!webRReady) { alert('WebR not ready yet.'); return; }
         const column = colSelect.value;
         const threshold = parseFloat(thresholdInput.value) || 40;
-        if (!column || !csvData) { alert('Please upload CSV and select a column.'); return; }
+        if (!column || !csvText) return alert('Upload a CSV and select a column.');
 
         resetResults();
-        plotPlaceholder.style.display = 'block';
-        plotPlaceholder.textContent = 'Running analysis...';
-        setStatus('loading', 'Fitting mixture model...');
+        plotPlaceholder.textContent = 'Fitting mixture model…';
+        setStatus('Analyzing…');
 
         try {
-            // Write CSV to virtual filesystem
-            await webR.FS.writeFile('/home/webr/data.csv', csvData);
+            // Write CSV to virtual filesystem (Uint8Array required)
+            await webR.FS.writeFile('/data.csv', new TextEncoder().encode(csvText));
 
-            // Remove old canvas if exists
-            const oldCanvas = document.getElementById('plot-canvas-target');
-            if (oldCanvas) oldCanvas.remove();
-            currentPlotCanvas = null;
+            // Remove old canvas
+            document.getElementById('plot-canvas-target')?.remove();
 
-            const rCode = buildRCode(column, threshold);
-            const result = await webR.evalR(rCode);
+            const result = await webR.evalR(buildRCode(column, threshold));
             const res = await result.toObject();
 
-            // Wait for canvas to appear
+            // Wait for canvas
             await new Promise(r => setTimeout(r, 200));
             const canvas = document.getElementById('plot-canvas-target');
             if (canvas) {
                 plotContainer.innerHTML = '';
                 plotContainer.appendChild(canvas);
-                currentPlotCanvas = canvas;
                 plotPlaceholder.style.display = 'none';
             } else {
-                plotPlaceholder.textContent = 'Plot rendered but not displayed.';
+                plotPlaceholder.textContent = 'Plot could not be displayed.';
             }
 
-            // Display results
+            // Show results
             resultsCard.style.display = 'block';
             verdictBadge.textContent = res.verdict;
             verdictBadge.className = 'verdict ' + (res.verdict_class || 'unimodal');
 
             resultsGrid.innerHTML = [
-                {l:'BIC (1-comp)', v:res.bic1},
-                {l:'BIC (2-comp)', v:res.bic2},
-                {l:'BIC Difference', v:res.bic_diff},
-                {l:'Separation', v:res.separation},
-                {l:'Comp.1 Mean', v:res.mu1},
-                {l:'Comp.2 Mean', v:res.mu2},
-                {l:'SD₁ / SD₂', v:res.sigma1+' / '+res.sigma2},
-                {l:'Mixing (%)', v:res.lambda1+'% / '+res.lambda2+'%'},
-                {l:'Cutoff(s)', v:res.cutoff},
-                {l:'Data used', v:res.n_used+' / '+res.n_total},
-                {l:'EM iterations', v:res.iter}
-            ].map(i => `<div class="result-badge"><div class="value">${i.v}</div><div class="label">${i.l}</div></div>`).join('');
+                ['BIC (1-comp)', res.bic1],
+                ['BIC (2-comp)', res.bic2],
+                ['BIC Difference', res.bic_diff],
+                ['Separation', res.separation],
+                ['Comp.1 Mean', res.mu1],
+                ['Comp.2 Mean', res.mu2],
+                ['SD₁ / SD₂', res.sigma1 + ' / ' + res.sigma2],
+                ['Mixing %', res.lambda1 + '% / ' + res.lambda2 + '%'],
+                ['Cutoff(s)', res.cutoff],
+                ['Data used', res.n_used + ' / ' + res.n_total],
+                ['EM iterations', res.iter]
+            ].map(([l, v]) => `<div class="result-badge"><div class="value">${v}</div><div class="label">${l}</div></div>`).join('');
 
-            setStatus('ready', 'Analysis complete.');
+            setStatus('Analysis complete');
         } catch (err) {
             console.error(err);
             plotPlaceholder.textContent = 'Error: ' + err.message;
-            setStatus('error', 'Analysis failed.');
+            setStatus('Error during analysis');
         }
     }
 
     analyzeBtn.addEventListener('click', runAnalysis);
-    colSelect.addEventListener('change', () => analyzeBtn.disabled = !colSelect.value);
 
-    // Start everything
-    initWebR();
+    // Start WebR
+    (async () => {
+        try {
+            webR = new WebR({ interactive: false });
+            await webR.init();
+            setStatus('WebR ready. Upload your CSV.');
+        } catch (e) {
+            setStatus('WebR initialization failed.');
+            console.error(e);
+        }
+    })();
 </script>
 </body>
 </html>
