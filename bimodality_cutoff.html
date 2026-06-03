@@ -5,12 +5,15 @@
     <title>Cq Bimodality + Cutoff CI</title>
 </head>
 <body>
-    <h2>Cq Bimodality Analyzer v0.15 </h2>
+    <h2>Cq Bimodality Analyzer v0.16 </h2>
     <div>
-        <input type="file" id="fileInput" accept=".csv"> (or drop CSV anywhere)
-        <br>
+        <input type="file" id="fileInput" accept=".csv"> (or drop CSV anywhere)<br>
         <label>Column: <select id="colSelect" disabled><option>Upload CSV first</option></select></label>
-        <label>Keep values &lt; <input type="number" id="threshold" value="40" step="0.1" min="0" style="width:70px"></label>
+        <label>Keep &lt; <input type="number" id="threshold" value="40" step="0.1" min="0" style="width:70px"></label><br>
+        <label>X min: <input type="number" id="xmin" placeholder="auto" step="any" style="width:70px"></label>
+        <label>X max: <input type="number" id="xmax" placeholder="auto" step="any" style="width:70px"></label>
+        <label>Y min: <input type="number" id="ymin" placeholder="0" step="any" style="width:70px"></label>
+        <label>Y max: <input type="number" id="ymax" placeholder="auto" step="any" style="width:70px"></label><br>
         <button id="analyzeBtn" disabled>Analyze</button>
     </div>
     <div id="plotContainer"></div>
@@ -22,6 +25,10 @@
         const fileInput = document.getElementById('fileInput');
         const colSelect = document.getElementById('colSelect');
         const thresholdInput = document.getElementById('threshold');
+        const xminInput = document.getElementById('xmin');
+        const xmaxInput = document.getElementById('xmax');
+        const yminInput = document.getElementById('ymin');
+        const ymaxInput = document.getElementById('ymax');
         const analyzeBtn = document.getElementById('analyzeBtn');
         const plotContainer = document.getElementById('plotContainer');
         const resultsPre = document.getElementById('results');
@@ -74,11 +81,15 @@
             return { cols: headers, rows: lines.length - 1, delim };
         }
 
-        function buildRCode(column, threshold, delimiter) {
+        function buildRCode(column, threshold, delimiter, xmin, xmax, ymin, ymax) {
             const safeCol = column.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
             const rSep = delimiter === '\t' ? '\\t' : delimiter;
+
+            // Handle empty/invalid axis limits – convert to NA for R
+            const xlimStr = (xmin !== '' && xmax !== '') ? `c(${xmin}, ${xmax})` : 'NULL';
+            const ylimStr = (ymin !== '' && ymax !== '') ? `c(${ymin}, ${ymax})` : 'NULL';
+
             return `
-            # Fixed base64 encoder (converts raw to integer)
             rawToBase64 <- function(x) {
               if (length(x) == 0) return("")
               b64chars <- c(LETTERS, letters, 0:9, '+', '/')
@@ -239,13 +250,45 @@
                 }
             }
 
-            # Create plot and encode as base64
+            # Handle axis limits
+            xlim <- ${xlimStr}
+            ylim <- ${ylimStr}
+            if (!is.null(xlim)) {
+                x <- x[x >= xlim[1] & x <= xlim[2]]
+                if (length(x) < 5) stop("Too few data points within the specified x-axis limits.")
+                # Update counts after subsetting
+                n_used <- length(x)
+                # Recompute model on trimmed data?
+                em <- em_two_normals(x)
+                bic1 <- -2*sum(dnorm(x, mean(x), sd(x), log = TRUE)) + 2*log(n_used)
+                bic2 <- -2*em$logLik + 5*log(n_used)
+                bic_diff <- bic1 - bic2
+                separation <- abs(em$mu1 - em$mu2)/sqrt((em$sigma1^2 + em$sigma2^2)/2)
+                verdict <- if (bic_diff > 10 && separation > 2) {
+                  "Strongly Bimodal"
+                } else if (bic_diff > 6 && separation > 1.5) {
+                  "Moderately Bimodal"
+                } else if (bic_diff > 2 && separation > 1) {
+                  "Weakly Bimodal"
+                } else {
+                  "Not Clearly Bimodal"
+                }
+                cutoffs <- find_cutoffs(em$mu1, em$mu2, em$sigma1, em$sigma2, em$lambda1)
+                main_cutoff <- if(length(cutoffs) > 0) cutoffs[1] else NA
+            }
+
+            # Create plot
             png('/tmp/plot.png', width = 700, height = 450)
             par(mar = c(4.5,4.5,2.5,1.5))
             hist(x, breaks = min(80, max(30, round(n_used/8))), freq = FALSE,
                  col = "#dfe6e9", border = "white", xlab = "Cq Value", ylab = "Density",
-                 main = paste0("Cq Distribution (n = ", n_used, ")"))
-            xx <- seq(min(x)-0.5, max(x)+0.5, length.out = 400)
+                 main = paste0("Cq Distribution (n = ", n_used, ")"),
+                 xlim = xlim, ylim = ylim)
+            if (!is.null(xlim)) {
+                xx <- seq(xlim[1], xlim[2], length.out = 400)
+            } else {
+                xx <- seq(min(x)-0.5, max(x)+0.5, length.out = 400)
+            }
             comp1 <- em$lambda1 * dnorm(xx, em$mu1, em$sigma1)
             comp2 <- em$lambda2 * dnorm(xx, em$mu2, em$sigma2)
             lines(xx, comp1, col = "#0984e3", lwd = 2, lty = 2)
@@ -293,6 +336,10 @@
         async function analyze() {
             const column = colSelect.value;
             const threshold = parseFloat(thresholdInput.value) || 40;
+            const xmin = xminInput.value.trim();
+            const xmax = xmaxInput.value.trim();
+            const ymin = yminInput.value.trim();
+            const ymax = ymaxInput.value.trim();
             if (!column || !csvText) return alert('Upload CSV and select column');
 
             resultsPre.textContent = 'Fitting model…';
@@ -301,7 +348,8 @@
             try {
                 await webR.FS.writeFile('/data.csv', new TextEncoder().encode(csvText));
 
-                const result = await webR.evalR(buildRCode(column, threshold, csvDelimiter));
+                const rCode = buildRCode(column, threshold, csvDelimiter, xmin, xmax, ymin, ymax);
+                const result = await webR.evalR(rCode);
 
                 const extract = async (name, type = 'string') => {
                     const obj = await result.get(name);
@@ -369,5 +417,8 @@
             }
         })();
     </script>
+    <footer>
+        citation: Trang et al. Epidemiology & Infection (2015) (above-displayed method was adapted from this paper)
+    </footer>
 </body>
 </html>
