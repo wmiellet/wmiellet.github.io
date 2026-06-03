@@ -90,7 +90,7 @@
 </head>
 <body>
 <div class="container">
-    <div class="header"><h1>🔬 Bimodal Cq Analyzer v0.3 </h1></div>
+    <div class="header"><h1>🔬 Bimodal Cq Analyzer v0.4</h1></div>
     <div id="status" style="text-align:center;font-size:0.9rem;color:#636e72;">Initializing WebR…</div>
 
     <div class="card">
@@ -206,7 +206,7 @@
         plotPlaceholder.textContent = 'Run analysis to see plot';
     }
 
-    // R analysis code (will be eval'd by WebR)
+    // R analysis code (fixed syntax: proper braces for if-else)
     function buildRCode(column, threshold) {
         return `
         dt <- read.csv('/data.csv', stringsAsFactors = FALSE, check.names = FALSE)
@@ -258,7 +258,6 @@
                              lambda1=length(g1)/n,lambda2=length(g2)/n,logLik=-Inf,iter=0)
           }
           if(best_res$mu1>best_res$mu2){
-            swap <- function(x,y){}
             tmp <- best_res$mu1; best_res$mu1 <- best_res$mu2; best_res$mu2 <- tmp
             tmp <- best_res$sigma1; best_res$sigma1 <- best_res$sigma2; best_res$sigma2 <- tmp
             tmp <- best_res$lambda1; best_res$lambda1 <- best_res$lambda2; best_res$lambda2 <- tmp
@@ -301,15 +300,22 @@
         separation <- abs(em$mu1-em$mu2)/sqrt((em$sigma1^2+em$sigma2^2)/2)
         bic_diff <- bic1 - bic2
         
-        verdict <- if(bic_diff>10 && separation>2) "Strongly Bimodal"
-                   else if(bic_diff>6 && separation>1.5) "Moderately Bimodal"
-                   else if(bic_diff>2 && separation>1) "Weakly Bimodal"
-                   else "Not Clearly Bimodal"
+        # Fixed: use braces to avoid line-break parsing error
+        verdict <- if (bic_diff > 10 && separation > 2) {
+          "Strongly Bimodal"
+        } else if (bic_diff > 6 && separation > 1.5) {
+          "Moderately Bimodal"
+        } else if (bic_diff > 2 && separation > 1) {
+          "Weakly Bimodal"
+        } else {
+          "Not Clearly Bimodal"
+        }
+        
         verdict_class <- switch(verdict,
-                                "Strongly Bimodal"="bimodal-strong",
-                                "Moderately Bimodal"="bimodal-moderate",
-                                "Weakly Bimodal"="bimodal-weak",
-                                "unimodal")
+          "Strongly Bimodal" = "bimodal-strong",
+          "Moderately Bimodal" = "bimodal-moderate",
+          "Weakly Bimodal" = "bimodal-weak",
+          "unimodal")
         
         webr::canvas(width=700, height=450, canvas_id="plot-canvas-target")
         par(mar=c(4.5,4.5,2.5,1.5))
@@ -355,7 +361,7 @@
         setStatus('Analyzing…');
 
         try {
-            // Write CSV to virtual filesystem (Uint8Array required)
+            // Write CSV to virtual filesystem (must be Uint8Array)
             await webR.FS.writeFile('/data.csv', new TextEncoder().encode(csvText));
 
             // Remove old canvas
@@ -364,7 +370,7 @@
             const result = await webR.evalR(buildRCode(column, threshold));
             const res = await result.toObject();
 
-            // Wait for canvas
+            // Wait for canvas to appear
             await new Promise(r => setTimeout(r, 200));
             const canvas = document.getElementById('plot-canvas-target');
             if (canvas) {
@@ -375,7 +381,7 @@
                 plotPlaceholder.textContent = 'Plot could not be displayed.';
             }
 
-            // Show results
+            // Display results
             resultsCard.style.display = 'block';
             verdictBadge.textContent = res.verdict;
             verdictBadge.className = 'verdict ' + (res.verdict_class || 'unimodal');
