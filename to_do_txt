@@ -1,0 +1,17 @@
+To be included:
+- add visual figure to explain the problem of molecular detection of bacteria in polymicrobial settings.
+- reference to Marshall paper.
+- 'BN' rule.
+- example data.
+- BA plots for log-transformed concentrations
+- BA plots for log-transformed genome copies/ml
+- options to assess ICC[3,1] (as quantitive agreement index), Cohen's kappa coefficients (as binary classification index).
+- options to compare correlation plot to X/Y plot.
+- options to transform BA plot to non-parametric LoAs or MAD-based LoAs.
+- options to enable 95% CI intervals of bias (mean/median difference) and LoAs.
+- options to enable predefined acceptable limits and adjust values.
+- data upload option for users to explore graphical tools with their own lab data.
+- PCR efficiency estimation tool
+- section on Cq tresholds upon discovery of multi-modal Cq distribution.
+- section on linkage analysis with digital PCR.
+- link to online laboratory protocol (to be published).
