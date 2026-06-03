@@ -5,7 +5,7 @@
     <title>Cq Bimodality + Cutoff CI</title>
 </head>
 <body>
-    <h2>Cq Bimodality Analyzer v0.18</h2>
+    <h2>Cq Bimodality Analyzer v0.19</h2>
     <div>
         <input type="file" id="fileInput" accept=".csv"> (or drop CSV anywhere)<br>
         <label>Column: <select id="colSelect" disabled><option>Upload CSV first</option></select></label>
@@ -237,14 +237,16 @@
             cutoffs <- find_cutoffs(em$mu1, em$mu2, em$sigma1, em$sigma2, em$lambda1)
             main_cutoff <- if(length(cutoffs) > 0) cutoffs[1] else NA
 
-            # Non‑parametric bootstrap CI for the cutoff
+            # Parametric bootstrap CI for the cutoff
             boot_ci <- NULL
             if(bic_diff > 2 && separation > 1 && !is.na(main_cutoff)) {
                 set.seed(42)
                 n_boot <- 300
                 boot_cut <- replicate(n_boot, {
-                    idx <- sample(1:length(x_plot), replace = TRUE)
-                    xb <- x_plot[idx]
+                    # Generate new data from the fitted mixture
+                    z <- rbinom(length(x_plot), 1, em$lambda1)
+                    xb <- ifelse(z == 1, rnorm(length(x_plot), em$mu1, em$sigma1),
+                                        rnorm(length(x_plot), em$mu2, em$sigma2))
                     emb <- try(em_two_normals(xb, n_starts = 3), silent = TRUE)
                     if(inherits(emb, "try-error")) return(NA)
                     cb <- try(find_cutoffs(emb$mu1, emb$mu2, emb$sigma1, emb$sigma2, emb$lambda1), silent = TRUE)
