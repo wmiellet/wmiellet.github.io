@@ -90,7 +90,7 @@
 </head>
 <body>
 <div class="container">
-    <div class="header"><h1>🔬 Bimodal Cq Analyzer v0.5</h1></div>
+    <div class="header"><h1>🔬 Bimodal Cq Analyzer v0.6 </h1></div>
     <div id="status" style="text-align:center;font-size:0.9rem;color:#636e72;">Initializing WebR…</div>
 
     <div class="card">
@@ -156,9 +156,11 @@
 
     function setStatus(msg) { statusEl.textContent = msg; }
 
-    // Parse CSV headers
+    // Parse CSV headers (remove BOM and quotes)
     function parseCSV(text) {
-        const lines = text.trim().split(/\r?\n/);
+        // Remove BOM if present
+        const cleanText = text.replace(/^\uFEFF/, '');
+        const lines = cleanText.trim().split(/\r?\n/);
         if (!lines.length) return { cols: [], rows: 0 };
         let delim = ',';
         const first = lines[0];
@@ -174,7 +176,8 @@
         if (!file) return;
         const reader = new FileReader();
         reader.onload = ev => {
-            csvText = ev.target.result;
+            // Store CSV text after stripping BOM
+            csvText = ev.target.result.replace(/^\uFEFF/, '');
             const { cols, rows } = parseCSV(csvText);
             fileNameEl.textContent = file.name;
             fileRowsEl.textContent = rows;
@@ -206,40 +209,40 @@
         plotPlaceholder.textContent = 'Run analysis to see plot';
     }
 
-    // R analysis code with improved error handling
+    // Build R code with improved column existence check and BOM handling
     function buildRCode(column, threshold) {
+        // Escape backslashes and quotes for safe injection into R string
+        const safeCol = column.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
         return `
         dt <- read.csv('/data.csv', stringsAsFactors = FALSE, check.names = FALSE)
         
-        # Check if column exists
-        if (!("${column.replace(/"/g, '\\"')}" %in% names(dt))) {
-          stop("Column '${column.replace(/"/g, '\\"')}' not found in CSV.")
+        # Check column existence and provide helpful error
+        if (!("${safeCol}" %in% names(dt))) {
+          stop(paste0("Column '${safeCol}' not found in CSV. Available columns: ",
+                      paste(names(dt), collapse = ", ")))
         }
         
-        x_raw <- suppressWarnings(as.numeric(dt[["${column.replace(/"/g, '\\"')}"]]))
+        x_raw <- suppressWarnings(as.numeric(dt[["${safeCol}"]]))
         n_original <- length(x_raw)
         n_na_before <- sum(is.na(x_raw))
         
-        # Remove NAs
         x_raw <- x_raw[!is.na(x_raw)]
         n_after_na <- length(x_raw)
         
-        # Apply threshold filter
         thresh <- ${threshold}
         if (!is.finite(thresh)) thresh <- Inf
         x <- x_raw[x_raw < thresh]
         n_used <- length(x)
         
-        # Detailed error messages
         if (n_original == 0) stop("The CSV file is empty or the column has no data.")
-        if (n_na_before == n_original) stop("All values in column '${column.replace(/"/g, '\\"')}' are non‑numeric (text/empty).")
+        if (n_na_before == n_original) stop("All values in the selected column are non‑numeric (text/empty).")
         if (n_used == 0) {
           stop(paste0("After removing NAs (", n_original - n_after_na, " values) and applying threshold < ", thresh, 
                       ", no data points remain. Check the threshold or column contents."))
         }
         if (n_used < 20) stop(paste0("Insufficient data: only ", n_used, " points remain. Need at least 20."))
         
-        # EM algorithm for 2‑component normal mixture (unchanged)
+        # EM algorithm for 2‑component normal mixture
         em_two_normals <- function(x, max_iter=800, tol=1e-6, n_starts=3) {
           n <- length(x)
           best_res <- NULL
@@ -313,7 +316,6 @@
           sort(roots)
         }
         
-        # Model fitting
         mu0 <- mean(x); sigma0 <- max(sd(x),0.01)
         bic1 <- -2*sum(dnorm(x,mu0,sigma0,log=TRUE)) + 2*log(n_used)
         
@@ -340,7 +342,6 @@
           "Weakly Bimodal" = "bimodal-weak",
           "unimodal")
         
-        # Plot
         webr::canvas(width=700, height=450, canvas_id="plot-canvas-target")
         par(mar=c(4.5,4.5,2.5,1.5))
         hist(x, breaks=min(80,max(30,round(n_used/8))), freq=FALSE,
@@ -371,7 +372,7 @@
              sigma1=round(em$sigma1,3), sigma2=round(em$sigma2,3),
              lambda1=round(em$lambda1*100,1), lambda2=round(em$lambda2*100,1),
              cutoff=paste(round(cutoffs,3), collapse=", "),
-             n_used=n_used, n_original=n_original, n_na_before=n_na_before,
+             n_used=n_used, n_original=n_original,
              iter=em$iter)
         `;
     }
@@ -386,6 +387,7 @@
         setStatus('Analyzing…');
 
         try {
+            // Write to WebR virtual filesystem (already BOM‑free)
             await webR.FS.writeFile('/data.csv', new TextEncoder().encode(csvText));
             document.getElementById('plot-canvas-target')?.remove();
 
@@ -424,13 +426,13 @@
         } catch (err) {
             console.error(err);
             plotPlaceholder.textContent = 'Error: ' + err.message;
-            setStatus('Error during analysis – see plot area');
+            setStatus('Error – see plot area for details');
         }
     }
 
     analyzeBtn.addEventListener('click', runAnalysis);
 
-    // Start WebR
+    // Initialize WebR
     (async () => {
         try {
             webR = new WebR({ interactive: false });
