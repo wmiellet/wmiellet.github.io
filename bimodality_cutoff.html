@@ -10,7 +10,7 @@
     </style>
 </head>
 <body>
-    <h2>Cq Bimodality Analyzer v0.9 </h2>
+    <h2>Cq Bimodality Analyzer v0.10 </h2>
     <div>
         <input type="file" id="fileInput" accept=".csv"> (or drop CSV anywhere)
         <br>
@@ -35,7 +35,7 @@
         let csvText = '';
         let csvDelimiter = ',';
 
-        // Simple drag & drop
+        // Drag & drop support
         document.body.addEventListener('dragover', e => e.preventDefault());
         document.body.addEventListener('drop', e => {
             e.preventDefault();
@@ -61,7 +61,6 @@
                 analyzeBtn.disabled = false;
                 resultsPre.textContent = '';
                 plotContainer.innerHTML = '';
-                updateStatus(`CSV loaded (${delim} delimited), ${rows} rows, ${cols.length} cols`);
             };
             reader.readAsText(file);
         }
@@ -81,17 +80,11 @@
             return { cols: headers, rows: lines.length - 1, delim };
         }
 
-        function updateStatus(msg) {
-            // simple status in console and maybe a small text
-            console.log(msg);
-        }
-
-        // R code
+        // Build R code – the fixed verdict section uses proper braces
         function buildRCode(column, threshold, delimiter) {
             const safeCol = column.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
             const rSep = delimiter === '\t' ? '\\t' : delimiter;
             return `
-            # Read data
             dt <- read.csv('/data.csv', stringsAsFactors = FALSE, check.names = FALSE, sep = '${rSep}')
             if (!("${safeCol}" %in% names(dt))) stop("Column not found: ${safeCol}")
 
@@ -103,7 +96,6 @@
             n_used <- length(x)
             if (n_used < 20) stop("Too few data points: ", n_used)
 
-            # EM for 2‑component normal mixture
             em_two_normals <- function(x, max_iter = 800, tol = 1e-6, n_starts = 3) {
                 n <- length(x)
                 best_res <- NULL
@@ -176,25 +168,29 @@
                 sort(roots)
             }
 
-            # Main fit
             em <- em_two_normals(x)
             bic1 <- -2*sum(dnorm(x, mean(x), sd(x), log = TRUE)) + 2*log(n_used)
             bic2 <- -2*em$logLik + 5*log(n_used)
             bic_diff <- bic1 - bic2
             separation <- abs(em$mu1 - em$mu2)/sqrt((em$sigma1^2 + em$sigma2^2)/2)
 
-            verdict <- if(bic_diff > 10 && separation > 2) "Strongly Bimodal"
-                       else if(bic_diff > 6 && separation > 1.5) "Moderately Bimodal"
-                       else if(bic_diff > 2 && separation > 1) "Weakly Bimodal"
-                       else "Not Clearly Bimodal"
+            # FIXED: use braces to avoid parse error
+            verdict <- if (bic_diff > 10 && separation > 2) {
+              "Strongly Bimodal"
+            } else if (bic_diff > 6 && separation > 1.5) {
+              "Moderately Bimodal"
+            } else if (bic_diff > 2 && separation > 1) {
+              "Weakly Bimodal"
+            } else {
+              "Not Clearly Bimodal"
+            }
 
             cutoffs <- find_cutoffs(em$mu1, em$mu2, em$sigma1, em$sigma2, em$lambda1)
-            main_cutoff <- cutoffs[1]  # primary cutoff between the two components
+            main_cutoff <- if(length(cutoffs) > 0) cutoffs[1] else NA
 
-            # Bootstrap CI for cutoff (non‑parametric) – only if bimodal
             boot_ci <- NULL
             if(bic_diff > 2 && separation > 1 && !is.na(main_cutoff)) {
-                set.seed(42)  # reproducibility
+                set.seed(42)
                 n_boot <- 100
                 boot_cut <- replicate(n_boot, {
                     idx <- sample(1:n_used, replace = TRUE)
@@ -211,14 +207,13 @@
                 }
             }
 
-            # Plot – always show histogram
+            # Plot
             webr::canvas(width = 700, height = 450, canvas_id = "plot-canvas")
             par(mar = c(4.5,4.5,2.5,1.5))
             hist(x, breaks = min(80, max(30, round(n_used/8))), freq = FALSE,
                  col = "#dfe6e9", border = "white", xlab = "Cq Value", ylab = "Density",
                  main = paste0("Cq Distribution (n = ", n_used, ")"))
             xx <- seq(min(x)-0.5, max(x)+0.5, length.out = 400)
-            # Always draw fitted mixture components
             comp1 <- em$lambda1 * dnorm(xx, em$mu1, em$sigma1)
             comp2 <- em$lambda2 * dnorm(xx, em$mu2, em$sigma2)
             lines(xx, comp1, col = "#0984e3", lwd = 2, lty = 2)
@@ -236,7 +231,6 @@
                    lwd = c(2,2,2.5,2), lty = c(2,2,1,2), bg = "white", box.lwd = 0.5, cex = 0.85)
             dev.off()
 
-            # Return as named list (use simple types)
             list(
                 verdict = verdict,
                 bic1 = bic1,
@@ -250,7 +244,7 @@
                 lambda1 = em$lambda1,
                 lambda2 = em$lambda2,
                 cutoff = paste(round(cutoffs, 3), collapse = ", "),
-                main_cutoff = if(length(cutoffs) > 0) cutoffs[1] else NA,
+                main_cutoff = main_cutoff,
                 ci_lower = if(!is.null(boot_ci)) boot_ci[1] else NA,
                 ci_upper = if(!is.null(boot_ci)) boot_ci[2] else NA,
                 n_used = n_used,
@@ -274,11 +268,9 @@
 
                 const result = await webR.evalR(buildRCode(column, threshold, csvDelimiter));
 
-                // Extract values
                 const extract = async (name, type = 'string') => {
                     const obj = await result.get(name);
-                    if (type === 'number') return await obj.toNumber();
-                    return await obj.toString();
+                    return type === 'number' ? await obj.toNumber() : await obj.toString();
                 };
 
                 const verdict = await extract('verdict');
@@ -299,7 +291,6 @@
                 const nOrig = await extract('n_original', 'number');
                 const iter = await extract('iter', 'number');
 
-                // Wait for canvas
                 await new Promise(r => setTimeout(r, 300));
                 const canvas = document.getElementById('plot-canvas');
                 if (canvas) {
@@ -309,7 +300,6 @@
                     plotContainer.innerHTML = '<p>Plot rendering failed.</p>';
                 }
 
-                // Build text output
                 let txt = `Verdict: ${verdict}\n\n`;
                 txt += `Data points: ${nUsed} used (from ${nOrig})\n`;
                 txt += `EM iterations: ${iter}\n\n`;
@@ -337,14 +327,12 @@
 
         analyzeBtn.addEventListener('click', analyze);
 
-        // Init WebR
         (async () => {
             try {
                 webR = new WebR({ interactive: false });
                 await webR.init();
-                updateStatus('WebR ready');
             } catch(e) {
-                updateStatus('WebR init failed');
+                alert('WebR failed to initialise');
             }
         })();
     </script>
