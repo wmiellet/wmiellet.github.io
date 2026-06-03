@@ -25,7 +25,6 @@ When both markers accurately detect the same bacterial population, the differenc
 <iframe src="https://wmiellet.github.io/plot.html" width="100%" height="350" frameborder="0"></iframe>
 
 ###### Figure 2: [Legend text].
-###### [Text]
 
 In some cases, binary agreement in classification may be suboptimal due to the presence of strains or closely related species that are positive for only one of the two markers. When such strains are common, the targeted bacterial population may co‑occur, further reducing agreement between the markers.
 
