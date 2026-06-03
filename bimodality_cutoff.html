@@ -5,7 +5,7 @@
     <title>Cq Bimodality + Cutoff CI</title>
 </head>
 <body>
-    <h2>Cq Bimodality Analyzer v0.14 </h2>
+    <h2>Cq Bimodality Analyzer v0.15 </h2>
     <div>
         <input type="file" id="fileInput" accept=".csv"> (or drop CSV anywhere)
         <br>
@@ -78,12 +78,12 @@
             const safeCol = column.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
             const rSep = delimiter === '\t' ? '\\t' : delimiter;
             return `
-            # Custom base64 encoder (no extra packages needed)
+            # Fixed base64 encoder (converts raw to integer)
             rawToBase64 <- function(x) {
               if (length(x) == 0) return("")
               b64chars <- c(LETTERS, letters, 0:9, '+', '/')
-              # number of complete groups of 3 bytes
               n <- length(x)
+              x <- as.integer(x)
               ngroups <- floor(n / 3)
               remainder <- n %% 3
               res <- character(0)
@@ -263,7 +263,6 @@
                    lwd = c(2,2,2.5,2), lty = c(2,2,1,2), bg = "white", box.lwd = 0.5, cex = 0.85)
             dev.off()
 
-            # Encode the PNG to base64
             raw_png <- readBin('/tmp/plot.png', 'raw', file.size('/tmp/plot.png'))
             plot_b64 <- rawToBase64(raw_png)
 
@@ -328,7 +327,6 @@
                 const nOrig = await extract('n_original', 'number');
                 const iter = await extract('iter', 'number');
 
-                // Display plot
                 const img = document.createElement('img');
                 img.src = 'data:image/png;base64,' + plotB64;
                 img.style.maxWidth = '100%';
