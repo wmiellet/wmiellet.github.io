@@ -90,7 +90,7 @@
 </head>
 <body>
 <div class="container">
-    <div class="header"><h1>🔬 Bimodal Cq Analyzer v0.7</h1></div>
+    <div class="header"><h1>🔬 Bimodal Cq Analyzer v0.8</h1></div>
     <div id="status" style="text-align:center;font-size:0.9rem;color:#636e72;">Initializing WebR…</div>
 
     <div class="card">
@@ -153,11 +153,10 @@
 
     let webR;
     let csvText = '';
-    let csvDelimiter = ','; // <-- store detected delimiter
+    let csvDelimiter = ','; 
 
     function setStatus(msg) { statusEl.textContent = msg; }
 
-    // Parse CSV headers and detect delimiter
     function parseCSV(text) {
         const cleanText = text.replace(/^\uFEFF/, '');
         const lines = cleanText.trim().split(/\r?\n/);
@@ -171,7 +170,6 @@
         return { cols: headers, rows: lines.length - 1, delim: delim };
     }
 
-    // File handling
     fileInput.addEventListener('change', e => {
         const file = e.target.files[0];
         if (!file) return;
@@ -179,7 +177,7 @@
         reader.onload = ev => {
             csvText = ev.target.result.replace(/^\uFEFF/, '');
             const { cols, rows, delim } = parseCSV(csvText);
-            csvDelimiter = delim; // save delimiter for R
+            csvDelimiter = delim; 
             fileNameEl.textContent = file.name;
             fileRowsEl.textContent = rows;
             fileColsEl.textContent = cols.length;
@@ -210,38 +208,30 @@
         plotPlaceholder.textContent = 'Run analysis to see plot';
     }
 
-    // Build R code with detected delimiter
     function buildRCode(column, threshold, delimiter) {
         const safeCol = column.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-        // Properly escape delimiter for R string
         const rSep = delimiter === '\t' ? '\\t' : delimiter;
         return `
         dt <- read.csv('/data.csv', stringsAsFactors = FALSE, check.names = FALSE, sep = '${rSep}')
         
         if (!("${safeCol}" %in% names(dt))) {
-          stop(paste0("Column '${safeCol}' not found in CSV. Available columns: ",
-                      paste(names(dt), collapse = ", ")))
+          stop(paste0("Column '${safeCol}' not found. Available: ", paste(names(dt), collapse=", ")))
         }
         
         x_raw <- suppressWarnings(as.numeric(dt[["${safeCol}"]]))
         n_original <- length(x_raw)
         n_na_before <- sum(is.na(x_raw))
-        
         x_raw <- x_raw[!is.na(x_raw)]
-        n_after_na <- length(x_raw)
         
         thresh <- ${threshold}
         if (!is.finite(thresh)) thresh <- Inf
         x <- x_raw[x_raw < thresh]
         n_used <- length(x)
         
-        if (n_original == 0) stop("The CSV file is empty or the column has no data.")
-        if (n_na_before == n_original) stop("All values in the selected column are non‑numeric (text/empty).")
-        if (n_used == 0) {
-          stop(paste0("After removing NAs (", n_original - n_after_na, " values) and applying threshold < ", thresh, 
-                      ", no data points remain. Check the threshold or column contents."))
-        }
-        if (n_used < 20) stop(paste0("Insufficient data: only ", n_used, " points remain. Need at least 20."))
+        if (n_original == 0) stop("No data in column.")
+        if (n_na_before == n_original) stop("All values non‑numeric.")
+        if (n_used == 0) stop("No data after filtering.")
+        if (n_used < 20) stop(paste0("Need at least 20 points, only ", n_used))
         
         em_two_normals <- function(x, max_iter=800, tol=1e-6, n_starts=3) {
           n <- length(x)
@@ -366,14 +356,13 @@
         dev.off()
         
         list(verdict=verdict, verdict_class=verdict_class,
-             bic1=round(bic1,2), bic2=round(bic2,2), bic_diff=round(bic_diff,2),
-             separation=round(separation,3),
-             mu1=round(em$mu1,3), mu2=round(em$mu2,3),
-             sigma1=round(em$sigma1,3), sigma2=round(em$sigma2,3),
-             lambda1=round(em$lambda1*100,1), lambda2=round(em$lambda2*100,1),
+             bic1=bic1, bic2=bic2, bic_diff=bic_diff,
+             separation=separation,
+             mu1=em$mu1, mu2=em$mu2,
+             sigma1=em$sigma1, sigma2=em$sigma2,
+             lambda1=em$lambda1, lambda2=em$lambda2,
              cutoff=paste(round(cutoffs,3), collapse=", "),
-             n_used=n_used, n_original=n_original,
-             iter=em$iter)
+             n_used=n_used, n_original=n_original, iter=em$iter)
         `;
     }
 
@@ -391,8 +380,26 @@
             document.getElementById('plot-canvas-target')?.remove();
 
             const result = await webR.evalR(buildRCode(column, threshold, csvDelimiter));
-            const res = await result.toObject();
 
+            // Extract each value safely
+            const verdict = await (await result.get('verdict')).toString();
+            const verdictClass = await (await result.get('verdict_class')).toString();
+            const bic1 = await (await result.get('bic1')).toNumber();
+            const bic2 = await (await result.get('bic2')).toNumber();
+            const bicDiff = await (await result.get('bic_diff')).toNumber();
+            const separation = await (await result.get('separation')).toNumber();
+            const mu1 = await (await result.get('mu1')).toNumber();
+            const mu2 = await (await result.get('mu2')).toNumber();
+            const sigma1 = await (await result.get('sigma1')).toNumber();
+            const sigma2 = await (await result.get('sigma2')).toNumber();
+            const lambda1 = await (await result.get('lambda1')).toNumber();
+            const lambda2 = await (await result.get('lambda2')).toNumber();
+            const cutoff = await (await result.get('cutoff')).toString();
+            const nUsed = await (await result.get('n_used')).toNumber();
+            const nOriginal = await (await result.get('n_original')).toNumber();
+            const iter = await (await result.get('iter')).toNumber();
+
+            // Canvas
             await new Promise(r => setTimeout(r, 200));
             const canvas = document.getElementById('plot-canvas-target');
             if (canvas) {
@@ -404,21 +411,21 @@
             }
 
             resultsCard.style.display = 'block';
-            verdictBadge.textContent = res.verdict;
-            verdictBadge.className = 'verdict ' + (res.verdict_class || 'unimodal');
+            verdictBadge.textContent = verdict;
+            verdictBadge.className = 'verdict ' + (verdictClass || 'unimodal');
 
             resultsGrid.innerHTML = [
-                ['BIC (1-comp)', res.bic1],
-                ['BIC (2-comp)', res.bic2],
-                ['BIC Difference', res.bic_diff],
-                ['Separation', res.separation],
-                ['Comp.1 Mean', res.mu1],
-                ['Comp.2 Mean', res.mu2],
-                ['SD₁ / SD₂', res.sigma1 + ' / ' + res.sigma2],
-                ['Mixing %', res.lambda1 + '% / ' + res.lambda2 + '%'],
-                ['Cutoff(s)', res.cutoff],
-                ['Data points used', res.n_used + ' (from ' + (res.n_original || res.n_used) + ')'],
-                ['EM iterations', res.iter]
+                ['BIC (1-comp)', bic1.toFixed(2)],
+                ['BIC (2-comp)', bic2.toFixed(2)],
+                ['BIC Difference', bicDiff.toFixed(2)],
+                ['Separation', separation.toFixed(3)],
+                ['Comp.1 Mean', mu1.toFixed(3)],
+                ['Comp.2 Mean', mu2.toFixed(3)],
+                ['SD₁ / SD₂', sigma1.toFixed(3) + ' / ' + sigma2.toFixed(3)],
+                ['Mixing %', (lambda1*100).toFixed(1) + '% / ' + ((1-lambda1)*100).toFixed(1) + '%'],
+                ['Cutoff(s)', cutoff],
+                ['Data used', nUsed + ' / ' + nOriginal],
+                ['EM iterations', iter]
             ].map(([l, v]) => `<div class="result-badge"><div class="value">${v}</div><div class="label">${l}</div></div>`).join('');
 
             setStatus('Analysis complete');
