@@ -48,16 +48,14 @@ A comprehensive discussion of indices is not within the scope of this text, ther
 <i>Refer to Bland-Altman paper on comparison to correlation coefficients.</i>
 
 #### ICC
-[Text].
+The intraclass correlation coefficient (ICC) is a measure of agreement for continuous measurements obtain from multiple methods. The ICC(3,1) is a specific type of ICC, namely a two-way mixed-effects model that treats methods as fixed effects and assesses consistency (rather than absolute agreement). In the context of a dual-target approach, the ICC(3,1) ...
+
 
 #### Cohen's kappa
-[Text].
+Cohen's kappa (κ) is a chance‑adjusted measure of agreement for categorical classifications (such as presence/absence) between two methods [<i>ref</i>]. It contrasts the observed agreement rate with the agreement anticipated by chance, where a κ value of 0.81 or higher typically indicates near‑perfect agreement. Such index values are anticipated when the two markers are assumed to show conditional dependence. The Cohen's kappa index can be a useful addition to the agreement plot, particularly when single‑positive and double‑negative samples are also displayed. In such cases, the agreement plot captures both the quantitative and the binary agreement between the two genetic markers.
 
 #### Light's kappa
 When two genetic markers exhibit poor agreement in binar classification due to one of two targets, an investigator can consider Light's kappa coefficient to assess whether validity of the target combination for a particular specimen type can be observed. Light's kappa coefficient is an assymetric kappa coefficient [6], that can be useful when a specimen type harbors a highly prevalent off-target bacterial population with one of two genetic markers present. Similar to Cohen's kappa coefficient, Light's kappa coefficient can only be used as complemtary tool to an agreement plot (and ICC index).
-
-
-[Text].
 
 ## Produce an agreement plot with your own data!
 <i>Upload your data as CSV file and create your own agreement plots.</i>
@@ -67,10 +65,10 @@ When two genetic markers exhibit poor agreement in binar classification due to o
 [serotyping agreement plot](https://wmiellet.github.io/serotype_ranking4.html).
 
 ## Limitations
-While combining two genetic markers (particularly those belonging to different connectivity networks) can improve the specificity of molecular detection, the proposed method has a number of limitations. Importantly, diagnostic specificity can be excquisitely monitored but not controlled for when due to subgroup variation in bacterial composition, a specimen type exhibits lack of conditional dependence. In such instances, investigators can consider to redesign molecular targets in an attempt to improve diagnostic specificity or utilize alternative approaches, such a microfluidics-mediated linkage analysis [7]. Furthermore... <i>assay-level confidence vs sample-level confidence</i>, <i> arbitrary predefined limits </i>.
+While combining two genetic markers (particularly those belonging to different connectivity networks) can improve the specificity of molecular detection, the proposed method has a number of limitations. Importantly, diagnostic specificity can be excquisitely monitored but not controlled for when due to subgroup variation in bacterial composition, a specimen type exhibits lack of conditional dependence. In such instances, investigators can consider to redesign molecular targets in an attempt to improve diagnostic specificity or utilize alternative approaches, such a microfluidics-mediated linkage analysis [7]. Furthermore, it is important to recognize that agreement plots (and agreement indices) provide validatiy at the assay level (i.e., performance across a set of samples). They cannot distinguish between false-positive and true-positive results for individual samples, as good agreement for a single sample may occur by random chance. Finally, the predefined acceptable limits used to evaluate the limits of agreement (LoAs) are arbitrary, and the LoAs themselves are insufficient to guide interpretation on their own.
 
 ## Recommendations & Concluding Remarks
-We encourage others to routinely monitor agreement between genetic markers. Due to spatiotemporal variation in sample composition or study group composition, the diagnostic specificity of molecular assays fluctuates. This phenomenon is known as the spectrum effect and is an important source of methodological bias across studies, study groups (e.g., age groups) and specimen types [8]. To avoid these pitfalls, we recommend assessing agreement between genetic markers on a per study subgroup basis, and for annual cross sectional studies, on a yearly basis within a single subgroup. <i>MIQE guidelines</i> [9].
+We encourage others to routinely monitor agreement between genetic markers. Due to spatiotemporal variation in sample composition or study group composition, the diagnostic specificity of molecular assays fluctuates. This phenomenon is known as the spectrum effect and is an important source of methodological bias across studies, study groups (e.g., age groups) and specimen types [8]. To avoid these pitfalls, we recommend assessing agreement between genetic markers on a per study subgroup basis, and for annual cross sectional studies, on a yearly basis within a single subgroup. In a similar vein, we recommend following the MIQE reporting guidelines for qPCR‑based analyses, as adherence to these guidelines may also help reduce interstudy variation [9].
 
 We hope the information presented in this tutorial will help familiarize researchers with the dual-target approach and agreement analysis. In our view, these methods may help reduce variation across studies and enhance the quality of evidence generated by molecular carriage surveillance studies.
 
