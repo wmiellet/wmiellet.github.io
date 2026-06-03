@@ -3,14 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <title>Cq Bimodality + Cutoff CI</title>
-    <style>
-        body { font-family: system-ui, sans-serif; margin: 20px; }
-        canvas { display: block; margin: 10px 0; max-width: 100%; }
-        #results { margin-top: 10px; white-space: pre-wrap; }
-    </style>
 </head>
 <body>
-    <h2>Cq Bimodality Analyzer v0.12 </h2>
+    <h2>Cq Bimodality Analyzer v0.13 </h2>
     <div>
         <input type="file" id="fileInput" accept=".csv"> (or drop CSV anywhere)
         <br>
@@ -83,6 +78,8 @@
             const safeCol = column.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
             const rSep = delimiter === '\t' ? '\\t' : delimiter;
             return `
+            library(base64enc)
+
             dt <- read.csv('/data.csv', stringsAsFactors = FALSE, check.names = FALSE, sep = '${rSep}')
             if (!("${safeCol}" %in% names(dt))) stop("Column not found: ${safeCol}")
 
@@ -185,13 +182,16 @@
             cutoffs <- find_cutoffs(em$mu1, em$mu2, em$sigma1, em$sigma2, em$lambda1)
             main_cutoff <- if(length(cutoffs) > 0) cutoffs[1] else NA
 
+            # Parametric bootstrap CI for cutoff (robust with small components)
             boot_ci <- NULL
             if(bic_diff > 2 && separation > 1 && !is.na(main_cutoff)) {
                 set.seed(42)
-                n_boot <- 300   # increased replicates
+                n_boot <- 200
                 boot_cut <- replicate(n_boot, {
-                    idx <- sample(1:n_used, replace = TRUE)
-                    xb <- x[idx]
+                    # generate data from the fitted mixture
+                    z <- rbinom(n_used, 1, em$lambda1)
+                    xb <- ifelse(z == 1, rnorm(n_used, em$mu1, em$sigma1),
+                                        rnorm(n_used, em$mu2, em$sigma2))
                     emb <- try(em_two_normals(xb), silent = TRUE)
                     if(inherits(emb, "try-error")) return(NA)
                     cb <- try(find_cutoffs(emb$mu1, emb$mu2, emb$sigma1, emb$sigma2, emb$lambda1), silent = TRUE)
@@ -199,14 +199,13 @@
                     cb[1]
                 })
                 boot_cut <- boot_cut[!is.na(boot_cut)]
-                # even 5 valid bootstraps can give a rough CI – lowered from 10
                 if(length(boot_cut) >= 5) {
                     boot_ci <- quantile(boot_cut, c(0.025, 0.975))
                 }
             }
 
-            # Plot
-            webr::canvas(width = 700, height = 450, canvas_id = "plot-canvas")
+            # Create PNG plot
+            png('/tmp/plot.png', width = 700, height = 450)
             par(mar = c(4.5,4.5,2.5,1.5))
             hist(x, breaks = min(80, max(30, round(n_used/8))), freq = FALSE,
                  col = "#dfe6e9", border = "white", xlab = "Cq Value", ylab = "Density",
@@ -229,6 +228,9 @@
                    lwd = c(2,2,2.5,2), lty = c(2,2,1,2), bg = "white", box.lwd = 0.5, cex = 0.85)
             dev.off()
 
+            # Encode plot as base64
+            plot_b64 <- base64enc::base64encode('/tmp/plot.png')
+
             list(
                 verdict = verdict,
                 bic1 = bic1,
@@ -245,6 +247,7 @@
                 main_cutoff = main_cutoff,
                 ci_lower = if(!is.null(boot_ci)) boot_ci[1] else NA,
                 ci_upper = if(!is.null(boot_ci)) boot_ci[2] else NA,
+                plot_b64 = plot_b64,
                 n_used = n_used,
                 n_original = length(x_raw),
                 iter = em$iter
@@ -252,27 +255,16 @@
             `;
         }
 
-        async function waitForCanvas(id, timeoutMs = 2000) {
-            const start = Date.now();
-            while (Date.now() - start < timeoutMs) {
-                const canvas = document.getElementById(id);
-                if (canvas) return canvas;
-                await new Promise(r => setTimeout(r, 100));
-            }
-            return null;
-        }
-
         async function analyze() {
             const column = colSelect.value;
             const threshold = parseFloat(thresholdInput.value) || 40;
             if (!column || !csvText) return alert('Upload CSV and select column');
 
-            resultsPre.textContent = 'Fitting model and computing confidence interval…';
+            resultsPre.textContent = 'Fitting model…';
             plotContainer.innerHTML = '';
 
             try {
                 await webR.FS.writeFile('/data.csv', new TextEncoder().encode(csvText));
-                document.getElementById('plot-canvas')?.remove();
 
                 const result = await webR.evalR(buildRCode(column, threshold, csvDelimiter));
 
@@ -295,18 +287,17 @@
                 const mainCutoff = parseFloat(await extract('main_cutoff'));
                 const ciLow = parseFloat(await extract('ci_lower'));
                 const ciUp = parseFloat(await extract('ci_upper'));
+                const plotB64 = await extract('plot_b64');
                 const nUsed = await extract('n_used', 'number');
                 const nOrig = await extract('n_original', 'number');
                 const iter = await extract('iter', 'number');
 
-                // Wait for canvas (polling)
-                const canvas = await waitForCanvas('plot-canvas', 2000);
-                if (canvas) {
-                    plotContainer.innerHTML = '';
-                    plotContainer.appendChild(canvas);
-                } else {
-                    plotContainer.innerHTML = '<p>Plot rendering timed out. The histogram could not be displayed.</p>';
-                }
+                // Display plot as image
+                const img = document.createElement('img');
+                img.src = 'data:image/png;base64,' + plotB64;
+                img.style.maxWidth = '100%';
+                plotContainer.innerHTML = '';
+                plotContainer.appendChild(img);
 
                 let txt = `Verdict: ${verdict}\n\n`;
                 txt += `Data points: ${nUsed} used (from ${nOrig})\n`;
