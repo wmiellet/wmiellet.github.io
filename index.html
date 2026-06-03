@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wmiellet – Personal Page</title>
+  <style>
+    /* Simple reset and basic styling */
+    body {
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, sans-serif;
+      margin: 0;
+      padding: 0;
+      line-height: 1.6;
+      color: #222;
+    }
+
+    /* Navigation / Tab bar */
+    .tabs {
+      background-color: #2c3e50;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+    }
+
+    .tabs a {
+      display: inline-block;
+      color: white;
+      text-align: center;
+      padding: 1rem 1.5rem;
+      text-decoration: none;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+
+    .tabs a:hover {
+      background-color: #1abc9c;
+      color: white;
+    }
+
+    /* Active tab (optional – for the current page) */
+    .tabs a.active {
+      background-color: #1abc9c;
+    }
+
+    /* Main content */
+    .container {
+      max-width: 800px;
+      margin: 2rem auto;
+      padding: 0 1.5rem;
+    }
+
+    h1 {
+      color: #2c3e50;
+    }
+
+    footer {
+      text-align: center;
+      margin-top: 3rem;
+      padding: 1rem;
+      background-color: #f4f4f4;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+
+<!-- TAB BAR / NAVIGATION -->
+<div class="tabs">
+  <a href="/" class="active">Home</a>
+  <a href="/tutorial.html">Tutorial</a>
+  <!-- You can add more tabs later, e.g. Projects, Contact -->
+</div>
+
+<!-- PERSONAL PAGE CONTENT -->
+<div class="container">
+  <h1>Hi, I'm Wmiellet 👋</h1>
+  <p>Welcome to my personal corner of the web.</p>
+  <p>I’m a developer / researcher / hobbyist (edit this to fit you).</p>
+  <p>Here’s a bit about me:</p>
+  <ul>
+    <li>💻 I love building web tools and tutorials.</li>
+    <li>📚 Currently learning [your interest].</li>
+    <li>🎯 Goal: share knowledge through clear guides.</li>
+  </ul>
+  <p>Check out my <strong><a href="/tutorial.html">Tutorial page</a></strong> for step‑by‑step guides.</p>
+</div>
+
+<footer>
+  © 2026 Wmiellet – Built with ☕ and GitHub Pages
+</footer>
+
+</body>
+</html>
