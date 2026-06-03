@@ -10,7 +10,7 @@
     </style>
 </head>
 <body>
-    <h2>Cq Bimodality Analyzer v0.10 </h2>
+    <h2>Cq Bimodality Analyzer v0.12 </h2>
     <div>
         <input type="file" id="fileInput" accept=".csv"> (or drop CSV anywhere)
         <br>
@@ -35,7 +35,6 @@
         let csvText = '';
         let csvDelimiter = ',';
 
-        // Drag & drop support
         document.body.addEventListener('dragover', e => e.preventDefault());
         document.body.addEventListener('drop', e => {
             e.preventDefault();
@@ -80,7 +79,6 @@
             return { cols: headers, rows: lines.length - 1, delim };
         }
 
-        // Build R code – the fixed verdict section uses proper braces
         function buildRCode(column, threshold, delimiter) {
             const safeCol = column.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
             const rSep = delimiter === '\t' ? '\\t' : delimiter;
@@ -174,7 +172,6 @@
             bic_diff <- bic1 - bic2
             separation <- abs(em$mu1 - em$mu2)/sqrt((em$sigma1^2 + em$sigma2^2)/2)
 
-            # FIXED: use braces to avoid parse error
             verdict <- if (bic_diff > 10 && separation > 2) {
               "Strongly Bimodal"
             } else if (bic_diff > 6 && separation > 1.5) {
@@ -191,7 +188,7 @@
             boot_ci <- NULL
             if(bic_diff > 2 && separation > 1 && !is.na(main_cutoff)) {
                 set.seed(42)
-                n_boot <- 100
+                n_boot <- 300   # increased replicates
                 boot_cut <- replicate(n_boot, {
                     idx <- sample(1:n_used, replace = TRUE)
                     xb <- x[idx]
@@ -202,7 +199,8 @@
                     cb[1]
                 })
                 boot_cut <- boot_cut[!is.na(boot_cut)]
-                if(length(boot_cut) >= 10) {
+                # even 5 valid bootstraps can give a rough CI – lowered from 10
+                if(length(boot_cut) >= 5) {
                     boot_ci <- quantile(boot_cut, c(0.025, 0.975))
                 }
             }
@@ -254,6 +252,16 @@
             `;
         }
 
+        async function waitForCanvas(id, timeoutMs = 2000) {
+            const start = Date.now();
+            while (Date.now() - start < timeoutMs) {
+                const canvas = document.getElementById(id);
+                if (canvas) return canvas;
+                await new Promise(r => setTimeout(r, 100));
+            }
+            return null;
+        }
+
         async function analyze() {
             const column = colSelect.value;
             const threshold = parseFloat(thresholdInput.value) || 40;
@@ -291,13 +299,13 @@
                 const nOrig = await extract('n_original', 'number');
                 const iter = await extract('iter', 'number');
 
-                await new Promise(r => setTimeout(r, 300));
-                const canvas = document.getElementById('plot-canvas');
+                // Wait for canvas (polling)
+                const canvas = await waitForCanvas('plot-canvas', 2000);
                 if (canvas) {
                     plotContainer.innerHTML = '';
                     plotContainer.appendChild(canvas);
                 } else {
-                    plotContainer.innerHTML = '<p>Plot rendering failed.</p>';
+                    plotContainer.innerHTML = '<p>Plot rendering timed out. The histogram could not be displayed.</p>';
                 }
 
                 let txt = `Verdict: ${verdict}\n\n`;
