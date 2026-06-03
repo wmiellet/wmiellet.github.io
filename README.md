@@ -33,11 +33,12 @@ If two genetic markers are rarely found together in a given bacterial population
 
 <iframe src="https://wmiellet.github.io/plot2.html" width="100%" height="350" frameborder="0"></iframe>
 
-###### Figure 3: 
-###### [Legend text].
+###### Figure 3: [Legend text].
 
 ### serotyping agreement plot
 While the population-specific agreement plot aims to validate the use of a dual-target combination for a given specimen type (and demographic group), the serotyping agreement plot serves to demonstrate that a serotype-specific marker is conditionally dependent on a population-specific marker. In other words, serotypes are only found as a subset of the targeted bacterial population. When this holds true, measurements from serotype-specific markers do not substantially exceed those from population-specific markers. This relationship can be evaluated by comparing measurements of the primary (i.e., dominantly detected) serotypes against those of the population-specific markers. Accordingly, the upper limit of agreement (LoA) must remain within the predefined acceptable limit. The lower LoA is not meaningful in this context, because secondary (subdominant) serotypes may occasionally be detected. Serotype-specific assays with suboptimal diagnostic specificity can be readily identified in this manner (Fig. 4}. 
+
+###### Figure 4: [Legend text].
 
 Importantly, assays must be evaluated at the assay level. Individual measurements cannot be interpreted in isolation, because even for suboptimal assays where strains of the targeted bacterial population are known to be present, good agreement for a single sample may simply occur by random chance.
 
