@@ -2,452 +2,351 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bimodal Cq Analyzer – WebR</title>
+    <title>Cq Bimodality + Cutoff CI</title>
     <style>
-        :root {
-            --bg: #f5f6fa;
-            --card-bg: #ffffff;
-            --text: #2d3436;
-            --accent: #0984e3;
-            --border: #dfe6e9;
-            --shadow: 0 2px 10px rgba(0,0,0,0.05);
-            --radius: 10px;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: 'Inter', system-ui, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            padding: 20px;
-        }
-        .container { max-width: 850px; margin: auto; display: flex; flex-direction: column; gap: 18px; }
-        .header { text-align: center; }
-        .header h1 { font-size: 1.8rem; font-weight: 700; }
-        .card {
-            background: var(--card-bg);
-            border-radius: var(--radius);
-            padding: 20px 24px;
-            box-shadow: var(--shadow);
-            border: 1px solid var(--border);
-        }
-        .card-title { font-weight: 700; margin-bottom: 14px; }
-        .upload-zone {
-            border: 2px dashed var(--border);
-            border-radius: var(--radius);
-            padding: 35px 20px;
-            text-align: center;
-            cursor: pointer;
-            background: #fafbfc;
-            position: relative;
-        }
-        .upload-zone:hover, .upload-zone.drag-over { border-color: var(--accent); background: #f0f7ff; }
-        .upload-zone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-        .file-info { margin-top: 12px; font-size: 0.9rem; color: var(--accent); display: none; }
-        .file-info.visible { display: block; }
-        .controls-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
-        .control-group { flex: 1; min-width: 160px; display: flex; flex-direction: column; gap: 5px; }
-        .control-group label { font-size: 0.8rem; font-weight: 600; color: #636e72; }
-        select, input {
-            padding: 9px 12px;
-            border: 1.5px solid var(--border);
-            border-radius: 6px;
-            background: #fafbfc;
-            width: 100%;
-        }
-        .btn {
-            font-weight: 600;
-            padding: 10px 22px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            background: var(--accent);
-            color: #fff;
-            transition: 0.2s;
-            white-space: nowrap;
-        }
-        .btn:disabled { background: #b2bec3; cursor: not-allowed; }
-        .btn:hover:not(:disabled) { background: #0767b3; box-shadow: 0 4px 12px rgba(9,132,227,0.25); }
-        .plot-container {
-            text-align: center;
-            min-height: 200px;
-            background: #fafbfc;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .results-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-        .result-badge { background: #f8f9fa; border-radius: 6px; padding: 12px; text-align: center; border: 1px solid var(--border); }
-        .result-badge .value { font-size: 1.3rem; font-weight: 700; }
-        .result-badge .label { font-size: 0.75rem; color: #777; }
-        .verdict { font-size: 1.1rem; font-weight: 700; padding: 8px 20px; border-radius: 20px; display: inline-block; }
-        .verdict.bimodal-strong { background: #d4edda; color: #155724; }
-        .verdict.bimodal-moderate { background: #fff3cd; color: #856404; }
-        .verdict.bimodal-weak { background: #ffeaa7; color: #6c5b00; }
-        .verdict.unimodal { background: #f1f3f4; color: #555; }
+        body { font-family: system-ui, sans-serif; margin: 20px; }
+        canvas { display: block; margin: 10px 0; max-width: 100%; }
+        #results { margin-top: 10px; white-space: pre-wrap; }
     </style>
 </head>
 <body>
-<div class="container">
-    <div class="header"><h1>🔬 Bimodal Cq Analyzer v0.8</h1></div>
-    <div id="status" style="text-align:center;font-size:0.9rem;color:#636e72;">Initializing WebR…</div>
-
-    <div class="card">
-        <div class="card-title">📁 Upload CSV</div>
-        <div class="upload-zone" id="uploadZone">
-            <div>📤 Click or drop CSV here</div>
-            <input type="file" id="fileInput" accept=".csv">
-        </div>
-        <div class="file-info" id="fileInfo">
-            ✅ <span id="fileName"></span> · <span id="fileRows"></span> rows · <span id="fileCols"></span> columns
-        </div>
+    <h2>Cq Bimodality Analyzer v0.9 </h2>
+    <div>
+        <input type="file" id="fileInput" accept=".csv"> (or drop CSV anywhere)
+        <br>
+        <label>Column: <select id="colSelect" disabled><option>Upload CSV first</option></select></label>
+        <label>Keep values &lt; <input type="number" id="threshold" value="40" step="0.1" min="0" style="width:70px"></label>
+        <button id="analyzeBtn" disabled>Analyze</button>
     </div>
+    <div id="plotContainer"></div>
+    <pre id="results"></pre>
 
-    <div class="card">
-        <div class="card-title">⚙️ Settings</div>
-        <div class="controls-row">
-            <div class="control-group">
-                <label for="colSelect">Cq Column</label>
-                <select id="colSelect" disabled><option>-- Upload CSV first --</option></select>
-            </div>
-            <div class="control-group">
-                <label for="threshold">Keep values &lt; threshold</label>
-                <input type="number" id="threshold" value="40" step="0.1" min="0" max="100">
-            </div>
-        </div>
-        <button class="btn" id="analyzeBtn" disabled style="margin-top:16px;">🔍 Analyze Bimodality</button>
-    </div>
+    <script type="module">
+        import { WebR } from 'https://webr.r-wasm.org/latest/webr.mjs';
 
-    <div class="card">
-        <div class="card-title">📈 Histogram & Mixture Model</div>
-        <div class="plot-container" id="plotContainer">
-            <div id="plotPlaceholder" style="color:#636e72;">Run analysis to see plot</div>
-        </div>
-    </div>
+        const fileInput = document.getElementById('fileInput');
+        const colSelect = document.getElementById('colSelect');
+        const thresholdInput = document.getElementById('threshold');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const plotContainer = document.getElementById('plotContainer');
+        const resultsPre = document.getElementById('results');
 
-    <div class="card" id="resultsCard" style="display:none;">
-        <div class="card-title">📊 Results</div>
-        <div style="text-align:center; margin-bottom:16px;"><span class="verdict" id="verdictBadge"></span></div>
-        <div class="results-grid" id="resultsGrid"></div>
-    </div>
-</div>
+        let webR;
+        let csvText = '';
+        let csvDelimiter = ',';
 
-<script type="module">
-    import { WebR } from 'https://webr.r-wasm.org/latest/webr.mjs';
+        // Simple drag & drop
+        document.body.addEventListener('dragover', e => e.preventDefault());
+        document.body.addEventListener('drop', e => {
+            e.preventDefault();
+            if (e.dataTransfer.files.length) processFile(e.dataTransfer.files[0]);
+        });
 
-    const statusEl = document.getElementById('status');
-    const fileInput = document.getElementById('fileInput');
-    const fileInfo = document.getElementById('fileInfo');
-    const fileNameEl = document.getElementById('fileName');
-    const fileRowsEl = document.getElementById('fileRows');
-    const fileColsEl = document.getElementById('fileCols');
-    const colSelect = document.getElementById('colSelect');
-    const thresholdInput = document.getElementById('threshold');
-    const analyzeBtn = document.getElementById('analyzeBtn');
-    const plotContainer = document.getElementById('plotContainer');
-    const plotPlaceholder = document.getElementById('plotPlaceholder');
-    const resultsCard = document.getElementById('resultsCard');
-    const verdictBadge = document.getElementById('verdictBadge');
-    const resultsGrid = document.getElementById('resultsGrid');
-
-    let webR;
-    let csvText = '';
-    let csvDelimiter = ','; 
-
-    function setStatus(msg) { statusEl.textContent = msg; }
-
-    function parseCSV(text) {
-        const cleanText = text.replace(/^\uFEFF/, '');
-        const lines = cleanText.trim().split(/\r?\n/);
-        if (!lines.length) return { cols: [], rows: 0, delim: ',' };
-        let delim = ',';
-        const first = lines[0];
-        if (first.includes('\t')) delim = '\t';
-        else if (first.includes(';')) delim = ';';
-        else if (first.includes('|')) delim = '|';
-        const headers = first.split(delim).map(h => h.trim().replace(/^["']|["']$/g, ''));
-        return { cols: headers, rows: lines.length - 1, delim: delim };
-    }
-
-    fileInput.addEventListener('change', e => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = ev => {
-            csvText = ev.target.result.replace(/^\uFEFF/, '');
-            const { cols, rows, delim } = parseCSV(csvText);
-            csvDelimiter = delim; 
-            fileNameEl.textContent = file.name;
-            fileRowsEl.textContent = rows;
-            fileColsEl.textContent = cols.length;
-            fileInfo.classList.add('visible');
-            colSelect.innerHTML = '<option value="">-- Select column --</option>';
-            cols.forEach(col => {
-                const opt = document.createElement('option');
-                opt.value = col;
-                opt.textContent = col;
-                if (col.toLowerCase().includes('cq') || col.toLowerCase().includes('ct')) opt.selected = true;
-                colSelect.appendChild(opt);
-            });
-            colSelect.disabled = false;
-            analyzeBtn.disabled = false;
-            resetResults();
-            setStatus(`CSV loaded (delimiter: ${delim === '\t' ? 'tab' : delim})`);
-        };
-        reader.readAsText(file);
-    });
-
-    function resetResults() {
-        resultsCard.style.display = 'none';
-        verdictBadge.className = 'verdict';
-        verdictBadge.textContent = '';
-        resultsGrid.innerHTML = '';
-        plotContainer.querySelectorAll('canvas').forEach(c => c.remove());
-        plotPlaceholder.style.display = 'block';
-        plotPlaceholder.textContent = 'Run analysis to see plot';
-    }
-
-    function buildRCode(column, threshold, delimiter) {
-        const safeCol = column.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-        const rSep = delimiter === '\t' ? '\\t' : delimiter;
-        return `
-        dt <- read.csv('/data.csv', stringsAsFactors = FALSE, check.names = FALSE, sep = '${rSep}')
-        
-        if (!("${safeCol}" %in% names(dt))) {
-          stop(paste0("Column '${safeCol}' not found. Available: ", paste(names(dt), collapse=", ")))
-        }
-        
-        x_raw <- suppressWarnings(as.numeric(dt[["${safeCol}"]]))
-        n_original <- length(x_raw)
-        n_na_before <- sum(is.na(x_raw))
-        x_raw <- x_raw[!is.na(x_raw)]
-        
-        thresh <- ${threshold}
-        if (!is.finite(thresh)) thresh <- Inf
-        x <- x_raw[x_raw < thresh]
-        n_used <- length(x)
-        
-        if (n_original == 0) stop("No data in column.")
-        if (n_na_before == n_original) stop("All values non‑numeric.")
-        if (n_used == 0) stop("No data after filtering.")
-        if (n_used < 20) stop(paste0("Need at least 20 points, only ", n_used))
-        
-        em_two_normals <- function(x, max_iter=800, tol=1e-6, n_starts=3) {
-          n <- length(x)
-          best_res <- NULL
-          best_ll <- -Inf
-          for(start in 1:n_starts){
-            if(start==1) sp <- median(x)
-            else if(start==2) sp <- quantile(x, 0.45)
-            else sp <- quantile(x, 0.35+0.05*start)
-            g1 <- x[x <= sp]; g2 <- x[x > sp]
-            if(length(g1)<3 || length(g2)<3) next
-            mu1 <- mean(g1); mu2 <- mean(g2)
-            sigma1 <- max(sd(g1),0.01); sigma2 <- max(sd(g2),0.01)
-            lambda1 <- length(g1)/n; lambda2 <- 1-lambda1
-            ll_old <- -Inf
-            for(iter in 1:max_iter){
-              resp1 <- lambda1*dnorm(x,mu1,sigma1)
-              resp2 <- lambda2*dnorm(x,mu2,sigma2)
-              total <- resp1+resp2; total[total<1e-300] <- 1e-300
-              resp1 <- resp1/total; resp2 <- resp2/total
-              lambda1 <- mean(resp1); lambda2 <- 1-lambda1
-              mu1 <- sum(resp1*x)/sum(resp1)
-              mu2 <- sum(resp2*x)/sum(resp2)
-              sigma1 <- sqrt(sum(resp1*(x-mu1)^2)/sum(resp1))
-              sigma2 <- sqrt(sum(resp2*(x-mu2)^2)/sum(resp2))
-              if(sigma1<0.005) sigma1=0.01
-              if(sigma2<0.005) sigma2=0.01
-              if(lambda1<0.02) lambda1=0.02
-              if(lambda1>0.98) lambda1=0.98
-              lambda2 <- 1-lambda1
-              ll_new <- sum(log(lambda1*dnorm(x,mu1,sigma1)+lambda2*dnorm(x,mu2,sigma2)))
-              if(abs(ll_new-ll_old)<tol) break
-              ll_old <- ll_new
-            }
-            if(is.finite(ll_old) && ll_old>best_ll){
-              best_ll <- ll_old
-              best_res <- list(mu1=mu1,mu2=mu2,sigma1=sigma1,sigma2=sigma2,
-                               lambda1=lambda1,lambda2=lambda2,logLik=ll_old,iter=iter)
-            }
-          }
-          if(is.null(best_res)){
-            m <- median(x); g1 <- x[x<=m]; g2 <- x[x>m]
-            best_res <- list(mu1=mean(g1),mu2=mean(g2),
-                             sigma1=max(sd(g1),0.05),sigma2=max(sd(g2),0.05),
-                             lambda1=length(g1)/n,lambda2=length(g2)/n,logLik=-Inf,iter=0)
-          }
-          if(best_res$mu1>best_res$mu2){
-            tmp <- best_res$mu1; best_res$mu1 <- best_res$mu2; best_res$mu2 <- tmp
-            tmp <- best_res$sigma1; best_res$sigma1 <- best_res$sigma2; best_res$sigma2 <- tmp
-            tmp <- best_res$lambda1; best_res$lambda1 <- best_res$lambda2; best_res$lambda2 <- tmp
-          }
-          best_res
-        }
-        
-        find_cutoffs <- function(mu1,mu2,sigma1,sigma2,lambda1){
-          lambda2 <- 1-lambda1
-          f <- function(x) lambda1*dnorm(x,mu1,sigma1) - lambda2*dnorm(x,mu2,sigma2)
-          lo <- min(mu1-4*sigma1, mu2-4*sigma2)
-          hi <- max(mu1+4*sigma1, mu2+4*sigma2)
-          grid <- seq(lo,hi,length.out=300)
-          vals <- sapply(grid,f)
-          roots <- c()
-          for(i in 1:(length(grid)-1)){
-            if(is.finite(vals[i]) && is.finite(vals[i+1]) && vals[i]*vals[i+1]<=0){
-              tryCatch({
-                r <- uniroot(f, c(grid[i],grid[i+1]), tol=1e-6)$root
-                if(length(roots)==0 || min(abs(r-roots))>0.05) roots <- c(roots,r)
-              }, error=function(e){})
-            }
-          }
-          if(length(roots)==0) roots <- (mu1*lambda2 + mu2*lambda1)/(lambda1+lambda2)
-          sort(roots)
-        }
-        
-        mu0 <- mean(x); sigma0 <- max(sd(x),0.01)
-        bic1 <- -2*sum(dnorm(x,mu0,sigma0,log=TRUE)) + 2*log(n_used)
-        
-        em <- em_two_normals(x)
-        bic2 <- -2*em$logLik + 5*log(n_used)
-        
-        cutoffs <- find_cutoffs(em$mu1,em$mu2,em$sigma1,em$sigma2,em$lambda1)
-        separation <- abs(em$mu1-em$mu2)/sqrt((em$sigma1^2+em$sigma2^2)/2)
-        bic_diff <- bic1 - bic2
-        
-        verdict <- if (bic_diff > 10 && separation > 2) {
-          "Strongly Bimodal"
-        } else if (bic_diff > 6 && separation > 1.5) {
-          "Moderately Bimodal"
-        } else if (bic_diff > 2 && separation > 1) {
-          "Weakly Bimodal"
-        } else {
-          "Not Clearly Bimodal"
-        }
-        
-        verdict_class <- switch(verdict,
-          "Strongly Bimodal" = "bimodal-strong",
-          "Moderately Bimodal" = "bimodal-moderate",
-          "Weakly Bimodal" = "bimodal-weak",
-          "unimodal")
-        
-        webr::canvas(width=700, height=450, canvas_id="plot-canvas-target")
-        par(mar=c(4.5,4.5,2.5,1.5))
-        hist(x, breaks=min(80,max(30,round(n_used/8))), freq=FALSE,
-             col="#dfe6e9", border="white", xlab="Cq Value", ylab="Density",
-             main=paste0("Cq Distribution (n=",n_used,")"))
-        xx <- seq(min(x)-0.5, max(x)+0.5, length.out=400)
-        comp1 <- em$lambda1*dnorm(xx,em$mu1,em$sigma1)
-        comp2 <- em$lambda2*dnorm(xx,em$mu2,em$sigma2)
-        lines(xx, comp1, col="#0984e3", lwd=2, lty=2)
-        lines(xx, comp2, col="#00b894", lwd=2, lty=2)
-        lines(xx, comp1+comp2, col="#e17055", lwd=2.5)
-        for(v in cutoffs) abline(v=v, lty=2, lwd=2, col="#6c5ce7")
-        if(length(cutoffs)>=2){
-          idx <- which(xx>=cutoffs[1] & xx<=cutoffs[2])
-          polygon(c(cutoffs[1],xx[idx],cutoffs[2]),
-                  c(0,(comp1+comp2)[idx],0),
-                  col=rgb(108,92,231,30,maxColorValue=255), border=NA)
-        }
-        legend("topright", c("Comp.1","Comp.2","Mixture","Cutoff"),
-               col=c("#0984e3","#00b894","#e17055","#6c5ce7"),
-               lwd=c(2,2,2.5,2), lty=c(2,2,1,2), bg="white", box.lwd=0.5, cex=0.85)
-        dev.off()
-        
-        list(verdict=verdict, verdict_class=verdict_class,
-             bic1=bic1, bic2=bic2, bic_diff=bic_diff,
-             separation=separation,
-             mu1=em$mu1, mu2=em$mu2,
-             sigma1=em$sigma1, sigma2=em$sigma2,
-             lambda1=em$lambda1, lambda2=em$lambda2,
-             cutoff=paste(round(cutoffs,3), collapse=", "),
-             n_used=n_used, n_original=n_original, iter=em$iter)
-        `;
-    }
-
-    async function runAnalysis() {
-        const column = colSelect.value;
-        const threshold = parseFloat(thresholdInput.value) || 40;
-        if (!column || !csvText) return alert('Upload a CSV and select a column.');
-
-        resetResults();
-        plotPlaceholder.textContent = 'Fitting mixture model…';
-        setStatus('Analyzing…');
-
-        try {
-            await webR.FS.writeFile('/data.csv', new TextEncoder().encode(csvText));
-            document.getElementById('plot-canvas-target')?.remove();
-
-            const result = await webR.evalR(buildRCode(column, threshold, csvDelimiter));
-
-            // Extract each value safely
-            const verdict = await (await result.get('verdict')).toString();
-            const verdictClass = await (await result.get('verdict_class')).toString();
-            const bic1 = await (await result.get('bic1')).toNumber();
-            const bic2 = await (await result.get('bic2')).toNumber();
-            const bicDiff = await (await result.get('bic_diff')).toNumber();
-            const separation = await (await result.get('separation')).toNumber();
-            const mu1 = await (await result.get('mu1')).toNumber();
-            const mu2 = await (await result.get('mu2')).toNumber();
-            const sigma1 = await (await result.get('sigma1')).toNumber();
-            const sigma2 = await (await result.get('sigma2')).toNumber();
-            const lambda1 = await (await result.get('lambda1')).toNumber();
-            const lambda2 = await (await result.get('lambda2')).toNumber();
-            const cutoff = await (await result.get('cutoff')).toString();
-            const nUsed = await (await result.get('n_used')).toNumber();
-            const nOriginal = await (await result.get('n_original')).toNumber();
-            const iter = await (await result.get('iter')).toNumber();
-
-            // Canvas
-            await new Promise(r => setTimeout(r, 200));
-            const canvas = document.getElementById('plot-canvas-target');
-            if (canvas) {
+        function processFile(file) {
+            if (!file.name.toLowerCase().endsWith('.csv')) return alert('Only CSV files allowed');
+            const reader = new FileReader();
+            reader.onload = ev => {
+                csvText = ev.target.result.replace(/^\uFEFF/, '');
+                const { cols, rows, delim } = parseCSV(csvText);
+                csvDelimiter = delim;
+                colSelect.innerHTML = '<option value="">-- Select column --</option>';
+                cols.forEach(col => {
+                    const o = document.createElement('option');
+                    o.value = col;
+                    o.textContent = col;
+                    if (col.toLowerCase().includes('cq') || col.toLowerCase().includes('ct')) o.selected = true;
+                    colSelect.appendChild(o);
+                });
+                colSelect.disabled = false;
+                analyzeBtn.disabled = false;
+                resultsPre.textContent = '';
                 plotContainer.innerHTML = '';
-                plotContainer.appendChild(canvas);
-                plotPlaceholder.style.display = 'none';
-            } else {
-                plotPlaceholder.textContent = 'Plot could not be displayed.';
+                updateStatus(`CSV loaded (${delim} delimited), ${rows} rows, ${cols.length} cols`);
+            };
+            reader.readAsText(file);
+        }
+
+        fileInput.addEventListener('change', e => {
+            if (e.target.files.length) processFile(e.target.files[0]);
+        });
+
+        function parseCSV(text) {
+            const lines = text.trim().split(/\r?\n/);
+            if (!lines.length) return { cols: [], rows: 0, delim: ',' };
+            let delim = ',';
+            const first = lines[0];
+            if (first.includes('\t')) delim = '\t';
+            else if (first.includes(';')) delim = ';';
+            const headers = first.split(delim).map(h => h.trim().replace(/^["']|["']$/g, ''));
+            return { cols: headers, rows: lines.length - 1, delim };
+        }
+
+        function updateStatus(msg) {
+            // simple status in console and maybe a small text
+            console.log(msg);
+        }
+
+        // R code
+        function buildRCode(column, threshold, delimiter) {
+            const safeCol = column.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            const rSep = delimiter === '\t' ? '\\t' : delimiter;
+            return `
+            # Read data
+            dt <- read.csv('/data.csv', stringsAsFactors = FALSE, check.names = FALSE, sep = '${rSep}')
+            if (!("${safeCol}" %in% names(dt))) stop("Column not found: ${safeCol}")
+
+            x_raw <- suppressWarnings(as.numeric(dt[["${safeCol}"]]))
+            x_raw <- x_raw[!is.na(x_raw)]
+            thresh <- ${threshold}
+            if (!is.finite(thresh)) thresh <- Inf
+            x <- x_raw[x_raw < thresh]
+            n_used <- length(x)
+            if (n_used < 20) stop("Too few data points: ", n_used)
+
+            # EM for 2‑component normal mixture
+            em_two_normals <- function(x, max_iter = 800, tol = 1e-6, n_starts = 3) {
+                n <- length(x)
+                best_res <- NULL
+                best_ll <- -Inf
+                for(start in 1:n_starts) {
+                    sp <- if(start == 1) median(x) else if(start == 2) quantile(x, 0.45) else quantile(x, 0.35 + 0.05*start)
+                    g1 <- x[x <= sp]
+                    g2 <- x[x > sp]
+                    if(length(g1) < 3 || length(g2) < 3) next
+                    mu1 <- mean(g1); mu2 <- mean(g2)
+                    sigma1 <- max(sd(g1), 0.01); sigma2 <- max(sd(g2), 0.01)
+                    lambda1 <- length(g1)/n; lambda2 <- 1 - lambda1
+                    ll_old <- -Inf
+                    for(iter in 1:max_iter) {
+                        resp1 <- lambda1 * dnorm(x, mu1, sigma1)
+                        resp2 <- lambda2 * dnorm(x, mu2, sigma2)
+                        total <- resp1 + resp2; total[total < 1e-300] <- 1e-300
+                        resp1 <- resp1/total; resp2 <- resp2/total
+                        lambda1 <- mean(resp1); lambda2 <- 1 - lambda1
+                        mu1 <- sum(resp1 * x)/sum(resp1)
+                        mu2 <- sum(resp2 * x)/sum(resp2)
+                        sigma1 <- sqrt(sum(resp1*(x - mu1)^2)/sum(resp1))
+                        sigma2 <- sqrt(sum(resp2*(x - mu2)^2)/sum(resp2))
+                        if(sigma1 < 0.005) sigma1 <- 0.01
+                        if(sigma2 < 0.005) sigma2 <- 0.01
+                        if(lambda1 < 0.02) lambda1 <- 0.02
+                        if(lambda1 > 0.98) lambda1 <- 0.98
+                        lambda2 <- 1 - lambda1
+                        ll_new <- sum(log(lambda1*dnorm(x, mu1, sigma1) + lambda2*dnorm(x, mu2, sigma2)))
+                        if(abs(ll_new - ll_old) < tol) break
+                        ll_old <- ll_new
+                    }
+                    if(is.finite(ll_old) && ll_old > best_ll) {
+                        best_ll <- ll_old
+                        best_res <- list(mu1 = mu1, mu2 = mu2, sigma1 = sigma1, sigma2 = sigma2,
+                                         lambda1 = lambda1, lambda2 = lambda2, logLik = ll_old, iter = iter)
+                    }
+                }
+                if(is.null(best_res)) {
+                    m <- median(x); g1 <- x[x <= m]; g2 <- x[x > m]
+                    best_res <- list(mu1 = mean(g1), mu2 = mean(g2),
+                                     sigma1 = max(sd(g1), 0.05), sigma2 = max(sd(g2), 0.05),
+                                     lambda1 = length(g1)/n, lambda2 = length(g2)/n, logLik = -Inf, iter = 0)
+                }
+                if(best_res$mu1 > best_res$mu2) {
+                    tmp <- best_res$mu1; best_res$mu1 <- best_res$mu2; best_res$mu2 <- tmp
+                    tmp <- best_res$sigma1; best_res$sigma1 <- best_res$sigma2; best_res$sigma2 <- tmp
+                    tmp <- best_res$lambda1; best_res$lambda1 <- best_res$lambda2; best_res$lambda2 <- tmp
+                }
+                best_res
             }
 
-            resultsCard.style.display = 'block';
-            verdictBadge.textContent = verdict;
-            verdictBadge.className = 'verdict ' + (verdictClass || 'unimodal');
+            find_cutoffs <- function(mu1, mu2, sigma1, sigma2, lambda1) {
+                lambda2 <- 1 - lambda1
+                f <- function(x) lambda1*dnorm(x, mu1, sigma1) - lambda2*dnorm(x, mu2, sigma2)
+                lo <- min(mu1 - 4*sigma1, mu2 - 4*sigma2)
+                hi <- max(mu1 + 4*sigma1, mu2 + 4*sigma2)
+                grid <- seq(lo, hi, length.out = 300)
+                vals <- sapply(grid, f)
+                roots <- c()
+                for(i in 1:(length(grid)-1)) {
+                    if(is.finite(vals[i]) && is.finite(vals[i+1]) && vals[i]*vals[i+1] <= 0) {
+                        tryCatch({
+                            r <- uniroot(f, c(grid[i], grid[i+1]), tol = 1e-6)$root
+                            if(length(roots) == 0 || min(abs(r - roots)) > 0.05) roots <- c(roots, r)
+                        }, error = function(e) {})
+                    }
+                }
+                if(length(roots) == 0) roots <- (mu1*lambda2 + mu2*lambda1)/(lambda1 + lambda2)
+                sort(roots)
+            }
 
-            resultsGrid.innerHTML = [
-                ['BIC (1-comp)', bic1.toFixed(2)],
-                ['BIC (2-comp)', bic2.toFixed(2)],
-                ['BIC Difference', bicDiff.toFixed(2)],
-                ['Separation', separation.toFixed(3)],
-                ['Comp.1 Mean', mu1.toFixed(3)],
-                ['Comp.2 Mean', mu2.toFixed(3)],
-                ['SD₁ / SD₂', sigma1.toFixed(3) + ' / ' + sigma2.toFixed(3)],
-                ['Mixing %', (lambda1*100).toFixed(1) + '% / ' + ((1-lambda1)*100).toFixed(1) + '%'],
-                ['Cutoff(s)', cutoff],
-                ['Data used', nUsed + ' / ' + nOriginal],
-                ['EM iterations', iter]
-            ].map(([l, v]) => `<div class="result-badge"><div class="value">${v}</div><div class="label">${l}</div></div>`).join('');
+            # Main fit
+            em <- em_two_normals(x)
+            bic1 <- -2*sum(dnorm(x, mean(x), sd(x), log = TRUE)) + 2*log(n_used)
+            bic2 <- -2*em$logLik + 5*log(n_used)
+            bic_diff <- bic1 - bic2
+            separation <- abs(em$mu1 - em$mu2)/sqrt((em$sigma1^2 + em$sigma2^2)/2)
 
-            setStatus('Analysis complete');
-        } catch (err) {
-            console.error(err);
-            plotPlaceholder.textContent = 'Error: ' + err.message;
-            setStatus('Error – see plot area for details');
+            verdict <- if(bic_diff > 10 && separation > 2) "Strongly Bimodal"
+                       else if(bic_diff > 6 && separation > 1.5) "Moderately Bimodal"
+                       else if(bic_diff > 2 && separation > 1) "Weakly Bimodal"
+                       else "Not Clearly Bimodal"
+
+            cutoffs <- find_cutoffs(em$mu1, em$mu2, em$sigma1, em$sigma2, em$lambda1)
+            main_cutoff <- cutoffs[1]  # primary cutoff between the two components
+
+            # Bootstrap CI for cutoff (non‑parametric) – only if bimodal
+            boot_ci <- NULL
+            if(bic_diff > 2 && separation > 1 && !is.na(main_cutoff)) {
+                set.seed(42)  # reproducibility
+                n_boot <- 100
+                boot_cut <- replicate(n_boot, {
+                    idx <- sample(1:n_used, replace = TRUE)
+                    xb <- x[idx]
+                    emb <- try(em_two_normals(xb), silent = TRUE)
+                    if(inherits(emb, "try-error")) return(NA)
+                    cb <- try(find_cutoffs(emb$mu1, emb$mu2, emb$sigma1, emb$sigma2, emb$lambda1), silent = TRUE)
+                    if(inherits(cb, "try-error") || length(cb) == 0) return(NA)
+                    cb[1]
+                })
+                boot_cut <- boot_cut[!is.na(boot_cut)]
+                if(length(boot_cut) >= 10) {
+                    boot_ci <- quantile(boot_cut, c(0.025, 0.975))
+                }
+            }
+
+            # Plot – always show histogram
+            webr::canvas(width = 700, height = 450, canvas_id = "plot-canvas")
+            par(mar = c(4.5,4.5,2.5,1.5))
+            hist(x, breaks = min(80, max(30, round(n_used/8))), freq = FALSE,
+                 col = "#dfe6e9", border = "white", xlab = "Cq Value", ylab = "Density",
+                 main = paste0("Cq Distribution (n = ", n_used, ")"))
+            xx <- seq(min(x)-0.5, max(x)+0.5, length.out = 400)
+            # Always draw fitted mixture components
+            comp1 <- em$lambda1 * dnorm(xx, em$mu1, em$sigma1)
+            comp2 <- em$lambda2 * dnorm(xx, em$mu2, em$sigma2)
+            lines(xx, comp1, col = "#0984e3", lwd = 2, lty = 2)
+            lines(xx, comp2, col = "#00b894", lwd = 2, lty = 2)
+            lines(xx, comp1 + comp2, col = "#e17055", lwd = 2.5)
+            for(v in cutoffs) abline(v = v, lty = 2, lwd = 2, col = "#6c5ce7")
+            if(length(cutoffs) >= 2) {
+                idx <- which(xx >= cutoffs[1] & xx <= cutoffs[2])
+                polygon(c(cutoffs[1], xx[idx], cutoffs[2]),
+                        c(0, (comp1 + comp2)[idx], 0),
+                        col = rgb(108,92,231,30,maxColorValue=255), border = NA)
+            }
+            legend("topright", c("Comp.1","Comp.2","Mixture","Cutoff"),
+                   col = c("#0984e3","#00b894","#e17055","#6c5ce7"),
+                   lwd = c(2,2,2.5,2), lty = c(2,2,1,2), bg = "white", box.lwd = 0.5, cex = 0.85)
+            dev.off()
+
+            # Return as named list (use simple types)
+            list(
+                verdict = verdict,
+                bic1 = bic1,
+                bic2 = bic2,
+                bic_diff = bic_diff,
+                separation = separation,
+                mu1 = em$mu1,
+                mu2 = em$mu2,
+                sigma1 = em$sigma1,
+                sigma2 = em$sigma2,
+                lambda1 = em$lambda1,
+                lambda2 = em$lambda2,
+                cutoff = paste(round(cutoffs, 3), collapse = ", "),
+                main_cutoff = if(length(cutoffs) > 0) cutoffs[1] else NA,
+                ci_lower = if(!is.null(boot_ci)) boot_ci[1] else NA,
+                ci_upper = if(!is.null(boot_ci)) boot_ci[2] else NA,
+                n_used = n_used,
+                n_original = length(x_raw),
+                iter = em$iter
+            )
+            `;
         }
-    }
 
-    analyzeBtn.addEventListener('click', runAnalysis);
+        async function analyze() {
+            const column = colSelect.value;
+            const threshold = parseFloat(thresholdInput.value) || 40;
+            if (!column || !csvText) return alert('Upload CSV and select column');
 
-    (async () => {
-        try {
-            webR = new WebR({ interactive: false });
-            await webR.init();
-            setStatus('WebR ready. Upload your CSV.');
-        } catch (e) {
-            setStatus('WebR initialization failed.');
-            console.error(e);
+            resultsPre.textContent = 'Fitting model and computing confidence interval…';
+            plotContainer.innerHTML = '';
+
+            try {
+                await webR.FS.writeFile('/data.csv', new TextEncoder().encode(csvText));
+                document.getElementById('plot-canvas')?.remove();
+
+                const result = await webR.evalR(buildRCode(column, threshold, csvDelimiter));
+
+                // Extract values
+                const extract = async (name, type = 'string') => {
+                    const obj = await result.get(name);
+                    if (type === 'number') return await obj.toNumber();
+                    return await obj.toString();
+                };
+
+                const verdict = await extract('verdict');
+                const bic1 = await extract('bic1', 'number');
+                const bic2 = await extract('bic2', 'number');
+                const bicDiff = await extract('bic_diff', 'number');
+                const separation = await extract('separation', 'number');
+                const mu1 = await extract('mu1', 'number');
+                const mu2 = await extract('mu2', 'number');
+                const sigma1 = await extract('sigma1', 'number');
+                const sigma2 = await extract('sigma2', 'number');
+                const lambda1 = await extract('lambda1', 'number');
+                const cutoffStr = await extract('cutoff');
+                const mainCutoff = parseFloat(await extract('main_cutoff'));
+                const ciLow = parseFloat(await extract('ci_lower'));
+                const ciUp = parseFloat(await extract('ci_upper'));
+                const nUsed = await extract('n_used', 'number');
+                const nOrig = await extract('n_original', 'number');
+                const iter = await extract('iter', 'number');
+
+                // Wait for canvas
+                await new Promise(r => setTimeout(r, 300));
+                const canvas = document.getElementById('plot-canvas');
+                if (canvas) {
+                    plotContainer.innerHTML = '';
+                    plotContainer.appendChild(canvas);
+                } else {
+                    plotContainer.innerHTML = '<p>Plot rendering failed.</p>';
+                }
+
+                // Build text output
+                let txt = `Verdict: ${verdict}\n\n`;
+                txt += `Data points: ${nUsed} used (from ${nOrig})\n`;
+                txt += `EM iterations: ${iter}\n\n`;
+                txt += `--- Single Normal (1 comp) ---\n`;
+                txt += `BIC = ${bic1.toFixed(2)}\n\n`;
+                txt += `--- Mixture Model (2 comp) ---\n`;
+                txt += `BIC = ${bic2.toFixed(2)}\n`;
+                txt += `ΔBIC = ${bicDiff.toFixed(2)}   (positive favours bimodal)\n`;
+                txt += `Separation = ${separation.toFixed(3)}\n\n`;
+                txt += `Component 1: mean = ${mu1.toFixed(3)}, SD = ${sigma1.toFixed(3)}, weight = ${(lambda1*100).toFixed(1)}%\n`;
+                txt += `Component 2: mean = ${mu2.toFixed(3)}, SD = ${sigma2.toFixed(3)}, weight = ${((1-lambda1)*100).toFixed(1)}%\n\n`;
+                txt += `Cutoff(s): ${cutoffStr}\n`;
+                if (!isNaN(mainCutoff) && verdict !== 'Not Clearly Bimodal' && !isNaN(ciLow)) {
+                    txt += `   Primary cutoff = ${mainCutoff.toFixed(3)}   (95% CI: ${ciLow.toFixed(3)} – ${ciUp.toFixed(3)})\n`;
+                } else {
+                    txt += `   No CI computed (bimodality not strong enough or bootstrap failed).\n`;
+                }
+
+                resultsPre.textContent = txt;
+            } catch (err) {
+                resultsPre.textContent = 'Error: ' + err.message;
+                plotContainer.innerHTML = '<p>Analysis failed.</p>';
+            }
         }
-    })();
-</script>
+
+        analyzeBtn.addEventListener('click', analyze);
+
+        // Init WebR
+        (async () => {
+            try {
+                webR = new WebR({ interactive: false });
+                await webR.init();
+                updateStatus('WebR ready');
+            } catch(e) {
+                updateStatus('WebR init failed');
+            }
+        })();
+    </script>
 </body>
 </html>
