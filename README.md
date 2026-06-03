@@ -1,5 +1,5 @@
 # Bland–Altman Agreement Analysis for Molecular Carriage Surveillance of Bacteria in Polymicrobial Samples – A Tutorial
-Test
+
 <i>Disclaimer: This page is being worked on. The page is currently incomplete and the text is somewhat rough around the edges.</i>
 
 ## Overview
@@ -7,7 +7,7 @@ The human oral cavity and gut is composed of a plethora of bacterial species, wh
 
 The dual-target approach uses agreement statistics (Fig. 1) to determine whether two genetic markers exhibit conditional dependence. Demonstrating such dependence between genetic markers in highly polymicrobial specimens can be used to confirm that a specific bacterial population can be individually quantified. While correlation quantifies the strength of a relationship, agreement assesses whether two methods are likely to measure the same quantity of a kind [2]. This distinction reveals whether the genetic markers are jointly measuring the abundance of strains from a single bacterial population, or instead reflecting two distinct populations.
 
-<iframe src="https://wmiellet.github.io/schematig_fig.html" width="100%" height="350" frameborder="0" style="display: block; margin: 0 auto"></iframe> 
+<iframe src="https://wmiellet.github.io/schematig_fig.html" width="100%" height="350" frameborder="0"></iframe> 
 
 ###### [Fig. 1]
 ###### [Legend text: Molecular detection challenged when facing different specimens with differing degree of polymicrobial composition. (A) Suspension of a pure culture with bacterial strain possessing two genes, gene A and B, which are used to detect presence of bacterial population. (B) Suspension of mixed bacterial community with bacterial strain present from panel A as well as other bacterial strains, all of which contain neither gene A or gene B. (C) Suspension of mixed bacterial community, containing bacterial strain from panel A, as well as other bacterial strains, including strains positive for either gene A or gene B. By adapting the method proposed by Bland and Altman and applying a believe-the-negative rule [3], we can monitor whether paired measurements of genetic markers exhibit conditional dependence. When applied to a set of samples positive for both targets, this information can be used to assess whether both targets are derived from the same bacterial population.] 
@@ -24,7 +24,7 @@ We distinguish between two types of agreement plots: the <i>population-specific 
 ### population-specific agreement plot
 When both markers accurately detect the same bacterial population, the difference between their measurements shows minimal bias, and the limits of agreement (LoAs) stay within predefined acceptable thresholds (Fig. 2). In this case, data points tend to cluster along the x‑axis and lie close to the line of equality (LoE). This indicates that the two genetic markers are conditionally dependent, supporting the validity of the dual‑target combination.
 
-<iframe src="https://wmiellet.github.io/plot.html" width="100%" height="350" frameborder="0" style="display: block; margin: 0 auto"></iframe>
+<iframe src="https://wmiellet.github.io/plot.html" width="100%" height="350" frameborder="0"></iframe>
 
 ###### Figure 2: [Legend text].
 
@@ -32,7 +32,7 @@ In some cases, binary agreement in classification may be suboptimal due to the p
 
 If two genetic markers are rarely found together in a given bacterial population, conditional independence between them is observed. Here, the bias between markers is often substantial, and the LoAs exceed the predefined acceptable limits (Fig. 3). Data points tend to scatter randomly across the Bland–Altman plot.
 
-<iframe src="https://wmiellet.github.io/plot2.html" width="100%" height="350" frameborder="0" style="display: block; margin: 0 auto"></iframe>
+<iframe src="https://wmiellet.github.io/plot2.html" width="100%" height="350" frameborder="0"></iframe>
 
 ###### Figure 3: 
 ###### [Legend text].
