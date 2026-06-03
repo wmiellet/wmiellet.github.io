@@ -116,7 +116,7 @@
         <div id="baPlotContainer" class="plot-container">
             <h3>Bland‑Altman Plot (Reference vs. Primary Rank – points coloured by dominant serotype)</h3>
             <div id="baPlot"></div>
-            <table id="statsTable" class="stats-table"><thead><tr><th>Statistic</th><th>Value (95% CI)</th></tr></thead><tbody></tbody>能有
+            <table id="statsTable" class="stats-table"><thead><tr><th>Statistic</th><th>Value (95% CI)</th></tr></thead><tbody></tbody>
         </div>
         <div id="correlationContainer" style="display:none; margin-top:20px;">
             <hr><h2>Correlation Plot</h2>
@@ -131,6 +131,7 @@
                 <div class="diagnostic-item"><div class="diagnostic-title">Proportionality (|diff| vs mean)</div><div id="propPlot" class="diagnostic-plot"></div><div id="propStats" style="font-size:13px;"></div></div>
             </div>
         </div>
+        Add references here.
     </div>
 
     <script type="module">
@@ -568,6 +569,5 @@
             const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'ranked_serotypes.csv'; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(a.href);
         });
     </script>
-     <p> Add references here.</p>
 </body>
 </html>
