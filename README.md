@@ -93,4 +93,4 @@ email: w.r.miellet-2(at)umcutrecht.nl
 ##### other links
 [PCR efficiency estimation](https://wmiellet.github.io/pcr_efficiency.html).
 
-[link](https://wmiellet.github.io/bimodality_cutoff.html).
+[qPCR Cq multi-modality cutoff assessment](https://wmiellet.github.io/bimodality_cutoff.html).
