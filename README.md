@@ -24,7 +24,7 @@ We distinguish between two types of agreement plots: the <i>population-specific 
 ### population-specific agreement plot
 When both markers accurately detect the same bacterial population, the difference between their measurements shows minimal bias, and the limits of agreement (LoAs) stay within predefined acceptable thresholds (Fig. 2). In this case, data points tend to cluster along the x‑axis and lie close to the line of equality (LoE). This indicates that the two genetic markers are conditionally dependent, supporting the validity of the dual‑target combination.
 
-<iframe src="https://wmiellet.github.io/plot.html" width="100%" height="350" frameborder="0"></iframe>
+<iframe src="https://wmiellet.github.io/plot.html" width="100%" height="350" frameborder="0" style="display: block; margin: 0 auto"></iframe>
 
 ###### Figure 2: [Legend text].
 
@@ -32,7 +32,7 @@ In some cases, binary agreement in classification may be suboptimal due to the p
 
 If two genetic markers are rarely found together in a given bacterial population, conditional independence between them is observed. Here, the bias between markers is often substantial, and the LoAs exceed the predefined acceptable limits (Fig. 3). Data points tend to scatter randomly across the Bland–Altman plot.
 
-<iframe src="https://wmiellet.github.io/plot2.html" width="100%" height="350" frameborder="0"></iframe>
+<iframe src="https://wmiellet.github.io/plot2.html" width="100%" height="350" frameborder="0" style="display: block; margin: 0 auto"></iframe>
 
 ###### Figure 3: 
 ###### [Legend text].
