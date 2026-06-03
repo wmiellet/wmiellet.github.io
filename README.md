@@ -91,6 +91,8 @@ Miellet, Willem R., et al. "It takes two to tango: combining conventional cultur
 ###### - <del>reference to Marshall paper.</del>
 ###### - <del>'BN' rule.</del>
 ###### - example data.
+###### - BA plots for log-transformed concentrations
+#####$ - BA plots for log-transformed genome copies/ml
 ###### - <del>options to assess ICC[3,1] (as quantitive agreement index), Cohen's kappa coefficients (as binary classification index).</del>
 ###### - <del>options to compare correlation plot to X/Y plot.</del>
 ###### - <del>options to transform BA plot to non-parametric LoAs or MAD-based LoAs.</del>
