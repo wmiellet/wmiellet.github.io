@@ -5,7 +5,7 @@
     <title>Cq Bimodality + Cutoff CI</title>
 </head>
 <body>
-    <h2>Cq Bimodality Analyzer v0.17</h2>
+    <h2>Cq Bimodality Analyzer v0.18</h2>
     <div>
         <input type="file" id="fileInput" accept=".csv"> (or drop CSV anywhere)<br>
         <label>Column: <select id="colSelect" disabled><option>Upload CSV first</option></select></label>
@@ -84,8 +84,6 @@
         function buildRCode(column, threshold, delimiter, xmin, xmax, ymin, ymax) {
             const safeCol = column.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
             const rSep = delimiter === '\t' ? '\\t' : delimiter;
-
-            // Robust axis limit handling: both must be provided and numeric
             const xlimStr = (xmin !== '' && xmax !== '') ? `c(${xmin}, ${xmax})` : 'NULL';
             const ylimStr = (ymin !== '' && ymax !== '') ? `c(${ymin}, ${ymax})` : 'NULL';
 
@@ -135,15 +133,14 @@
             thresh <- ${threshold}
             if (!is.finite(thresh)) thresh <- Inf
             x <- x_raw[x_raw < thresh]
-            n_used <- length(x)
-            if (n_used < 20) stop("Too few data points: ", n_used)
+            if (length(x) < 20) stop("Too few data points after threshold: ", length(x))
 
-            em_two_normals <- function(x, max_iter = 800, tol = 1e-6, n_starts = 3) {
+            em_two_normals <- function(x, max_iter = 800, tol = 1e-6, n_starts = 5) {
                 n <- length(x)
                 best_res <- NULL
                 best_ll <- -Inf
                 for(start in 1:n_starts) {
-                    sp <- if(start == 1) median(x) else if(start == 2) quantile(x, 0.45) else quantile(x, 0.35 + 0.05*start)
+                    sp <- if(start == 1) median(x) else if(start == 2) quantile(x, 0.45) else quantile(x, 0.35 + 0.05*(start-2))
                     g1 <- x[x <= sp]
                     g2 <- x[x > sp]
                     if(length(g1) < 3 || length(g2) < 3) next
@@ -210,10 +207,20 @@
                 sort(roots)
             }
 
-            # First fit on full data
-            em <- em_two_normals(x)
-            bic1 <- -2*sum(dnorm(x, mean(x), sd(x), log = TRUE)) + 2*log(n_used)
-            bic2 <- -2*em$logLik + 5*log(n_used)
+            # Subset data based on x-axis limits
+            xlim <- ${xlimStr}
+            ylim <- ${ylimStr}
+            if (!is.null(xlim)) {
+                x_plot <- x[x >= xlim[1] & x <= xlim[2]]
+                if (length(x_plot) < 5) stop("Too few data points within the specified x-axis limits.")
+            } else {
+                x_plot <- x
+            }
+
+            # Fit model on the data used for plotting
+            em <- em_two_normals(x_plot)
+            bic1 <- -2*sum(dnorm(x_plot, mean(x_plot), sd(x_plot), log = TRUE)) + 2*log(length(x_plot))
+            bic2 <- -2*em$logLik + 5*log(length(x_plot))
             bic_diff <- bic1 - bic2
             separation <- abs(em$mu1 - em$mu2)/sqrt((em$sigma1^2 + em$sigma2^2)/2)
 
@@ -230,54 +237,24 @@
             cutoffs <- find_cutoffs(em$mu1, em$mu2, em$sigma1, em$sigma2, em$lambda1)
             main_cutoff <- if(length(cutoffs) > 0) cutoffs[1] else NA
 
-            # Parametric bootstrap CI (on full data)
+            # Non‑parametric bootstrap CI for the cutoff
             boot_ci <- NULL
             if(bic_diff > 2 && separation > 1 && !is.na(main_cutoff)) {
                 set.seed(42)
-                n_boot <- 200
+                n_boot <- 300
                 boot_cut <- replicate(n_boot, {
-                    z <- rbinom(n_used, 1, em$lambda1)
-                    xb <- ifelse(z == 1, rnorm(n_used, em$mu1, em$sigma1),
-                                        rnorm(n_used, em$mu2, em$sigma2))
-                    emb <- try(em_two_normals(xb), silent = TRUE)
+                    idx <- sample(1:length(x_plot), replace = TRUE)
+                    xb <- x_plot[idx]
+                    emb <- try(em_two_normals(xb, n_starts = 3), silent = TRUE)
                     if(inherits(emb, "try-error")) return(NA)
                     cb <- try(find_cutoffs(emb$mu1, emb$mu2, emb$sigma1, emb$sigma2, emb$lambda1), silent = TRUE)
                     if(inherits(cb, "try-error") || length(cb) == 0) return(NA)
                     cb[1]
                 })
                 boot_cut <- boot_cut[!is.na(boot_cut)]
-                if(length(boot_cut) >= 5) {
+                if(length(boot_cut) >= 10) {
                     boot_ci <- quantile(boot_cut, c(0.025, 0.975))
                 }
-            }
-
-            # Apply x-axis limits to subset data for plotting
-            xlim <- ${xlimStr}
-            ylim <- ${ylimStr}
-            if (!is.null(xlim)) {
-                x_plot <- x[x >= xlim[1] & x <= xlim[2]]
-                if (length(x_plot) < 5) stop("Too few data points within the specified x-axis limits.")
-                # Refit model on trimmed data for display
-                em_plot <- em_two_normals(x_plot)
-                bic1_plot <- -2*sum(dnorm(x_plot, mean(x_plot), sd(x_plot), log = TRUE)) + 2*log(length(x_plot))
-                bic2_plot <- -2*em_plot$logLik + 5*log(length(x_plot))
-                bic_diff_plot <- bic1_plot - bic2_plot
-                separation_plot <- abs(em_plot$mu1 - em_plot$mu2)/sqrt((em_plot$sigma1^2 + em_plot$sigma2^2)/2)
-                verdict_plot <- if (bic_diff_plot > 10 && separation_plot > 2) {
-                  "Strongly Bimodal"
-                } else if (bic_diff_plot > 6 && separation_plot > 1.5) {
-                  "Moderately Bimodal"
-                } else if (bic_diff_plot > 2 && separation_plot > 1) {
-                  "Weakly Bimodal"
-                } else {
-                  "Not Clearly Bimodal"
-                }
-                cutoffs_plot <- find_cutoffs(em_plot$mu1, em_plot$mu2, em_plot$sigma1, em_plot$sigma2, em_plot$lambda1)
-            } else {
-                x_plot <- x
-                em_plot <- em
-                cutoffs_plot <- cutoffs
-                verdict_plot <- verdict
             }
 
             # Create plot
@@ -292,15 +269,15 @@
             } else {
                 xx <- seq(min(x_plot)-0.5, max(x_plot)+0.5, length.out = 400)
             }
-            comp1 <- em_plot$lambda1 * dnorm(xx, em_plot$mu1, em_plot$sigma1)
-            comp2 <- em_plot$lambda2 * dnorm(xx, em_plot$mu2, em_plot$sigma2)
+            comp1 <- em$lambda1 * dnorm(xx, em$mu1, em$sigma1)
+            comp2 <- em$lambda2 * dnorm(xx, em$mu2, em$sigma2)
             lines(xx, comp1, col = "#0984e3", lwd = 2, lty = 2)
             lines(xx, comp2, col = "#00b894", lwd = 2, lty = 2)
             lines(xx, comp1 + comp2, col = "#e17055", lwd = 2.5)
-            for(v in cutoffs_plot) abline(v = v, lty = 2, lwd = 2, col = "#6c5ce7")
-            if(length(cutoffs_plot) >= 2) {
-                idx <- which(xx >= cutoffs_plot[1] & xx <= cutoffs_plot[2])
-                polygon(c(cutoffs_plot[1], xx[idx], cutoffs_plot[2]),
+            for(v in cutoffs) abline(v = v, lty = 2, lwd = 2, col = "#6c5ce7")
+            if(length(cutoffs) >= 2) {
+                idx <- which(xx >= cutoffs[1] & xx <= cutoffs[2])
+                polygon(c(cutoffs[1], xx[idx], cutoffs[2]),
                         c(0, (comp1 + comp2)[idx], 0),
                         col = rgb(108,92,231,30,maxColorValue=255), border = NA)
             }
@@ -313,25 +290,25 @@
             plot_b64 <- rawToBase64(raw_png)
 
             list(
-                verdict = verdict_plot,
-                bic1 = if (!is.null(xlim)) bic1_plot else bic1,
-                bic2 = if (!is.null(xlim)) bic2_plot else bic2,
-                bic_diff = if (!is.null(xlim)) bic_diff_plot else bic_diff,
-                separation = if (!is.null(xlim)) separation_plot else separation,
-                mu1 = em_plot$mu1,
-                mu2 = em_plot$mu2,
-                sigma1 = em_plot$sigma1,
-                sigma2 = em_plot$sigma2,
-                lambda1 = em_plot$lambda1,
-                lambda2 = em_plot$lambda2,
-                cutoff = paste(round(cutoffs_plot, 3), collapse = ", "),
-                main_cutoff = if(length(cutoffs_plot) > 0) cutoffs_plot[1] else NA,
+                verdict = verdict,
+                bic1 = bic1,
+                bic2 = bic2,
+                bic_diff = bic_diff,
+                separation = separation,
+                mu1 = em$mu1,
+                mu2 = em$mu2,
+                sigma1 = em$sigma1,
+                sigma2 = em$sigma2,
+                lambda1 = em$lambda1,
+                lambda2 = em$lambda2,
+                cutoff = paste(round(cutoffs, 3), collapse = ", "),
+                main_cutoff = main_cutoff,
                 ci_lower = if(!is.null(boot_ci)) boot_ci[1] else NA,
                 ci_upper = if(!is.null(boot_ci)) boot_ci[2] else NA,
                 plot_b64 = plot_b64,
                 n_used = length(x_plot),
                 n_original = length(x_raw),
-                iter = em_plot$iter
+                iter = em$iter
             )
             `;
         }
@@ -396,7 +373,7 @@
                 txt += `Component 1: mean = ${mu1.toFixed(3)}, SD = ${sigma1.toFixed(3)}, weight = ${(lambda1*100).toFixed(1)}%\n`;
                 txt += `Component 2: mean = ${mu2.toFixed(3)}, SD = ${sigma2.toFixed(3)}, weight = ${((1-lambda1)*100).toFixed(1)}%\n\n`;
                 txt += `Cutoff(s): ${cutoffStr}\n`;
-                if (!isNaN(mainCutoff) && verdict !== 'Not Clearly Bimodal' && !isNaN(ciLow)) {
+                if (!isNaN(ciLow)) {
                     txt += `   Primary cutoff = ${mainCutoff.toFixed(3)}   (95% CI: ${ciLow.toFixed(3)} – ${ciUp.toFixed(3)})\n`;
                 } else {
                     txt += `   No CI computed (bimodality not strong enough or bootstrap failed).\n`;
