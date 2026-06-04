@@ -63,9 +63,9 @@ When two genetic markers exhibit poor agreement in binar classification due to o
 ## Produce an agreement plot with your own data!
 <i>Upload your data as CSV file and create your own agreement plots.</i>
 
-[population-specific agreement plot](https://wmiellet.github.io/assets/data_upload4.html). [example data]https://github.com/wmiellet/wmiellet.github.io/blob/9087058aa72a7267c7db94fe34eff3c2b88181f1/example_data/conditional_dependence_Bland_Altman.csv
+[population-specific agreement plot](https://wmiellet.github.io/assets/data_upload4.html). [example data](https://github.com/wmiellet/wmiellet.github.io/blob/9087058aa72a7267c7db94fe34eff3c2b88181f1/example_data/conditional_dependence_Bland_Altman.csv)
 
-[serotyping agreement plot](https://wmiellet.github.io/assets/serotype_ranking4.html). [example data]https://github.com/wmiellet/wmiellet.github.io/blob/9087058aa72a7267c7db94fe34eff3c2b88181f1/example_data/example_serotype_bland_altman_data.csv
+[serotyping agreement plot](https://wmiellet.github.io/assets/serotype_ranking4.html). [example data](https://github.com/wmiellet/wmiellet.github.io/blob/9087058aa72a7267c7db94fe34eff3c2b88181f1/example_data/example_serotype_bland_altman_data.csv)
 
 ## Limitations
 While combining two genetic markers (particularly those belonging to different connectivity networks) can improve the specificity of molecular detection, the proposed method has a number of limitations. Importantly, diagnostic specificity can be excquisitely monitored but not controlled for when due to subgroup variation in bacterial composition, a specimen type exhibits lack of conditional dependence. In such instances, investigators can consider to redesign molecular targets in an attempt to improve diagnostic specificity or utilize alternative approaches, such a microfluidics-mediated linkage analysis [7]. Furthermore, it is important to recognize that agreement plots (and agreement indices) provide validatiy at the assay level (i.e., performance across a set of samples). They cannot distinguish between false-positive and true-positive results for individual samples, as good agreement for a single sample may occur by random chance. Finally, the predefined acceptable limits used to evaluate the limits of agreement (LoAs) are arbitrary, and the LoAs themselves are insufficient to guide interpretation on their own.
