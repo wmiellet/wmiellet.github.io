@@ -7,7 +7,7 @@ The human oral cavity and gut is composed of a plethora of bacterial species, wh
 
 The dual-target approach uses agreement statistics (Fig. 1) to determine whether two genetic markers exhibit conditional dependence. Demonstrating such dependence between genetic markers in highly polymicrobial specimens can be used to confirm that a specific bacterial population can be individually quantified. While correlation quantifies the strength of a relationship, agreement assesses whether two methods are likely to measure the same quantity of a kind [2]. This distinction reveals whether the genetic markers are jointly measuring the abundance of strains from a single bacterial population, or instead reflecting two distinct populations.
 
-<iframe src="https://wmiellet.github.io/schematig_fig.html" width="100%" height="350" frameborder="0"></iframe> 
+<iframe src="https://wmiellet.github.io/assets/schematig_fig.html" width="100%" height="350" frameborder="0"></iframe> 
 
 ###### Fig. 1: Molecular detection challenged when facing different specimens with differing degree of polymicrobial composition. (A) Suspension of a pure culture with bacterial strain possessing two genes, gene A and B, which are used to detect presence of bacterial population. (B) Suspension of mixed bacterial community with bacterial strain present from panel A as well as other bacterial strains, all of which contain neither gene A or gene B. (C) Suspension of mixed bacterial community, containing bacterial strain from panel A, as well as other bacterial strains, including strains positive for either gene A or gene B. By adapting the method proposed by Bland and Altman and applying a believe-the-negative rule [3], we can monitor whether paired measurements of genetic markers exhibit conditional dependence. When applied to a set of samples positive for both targets, this information can be used to assess whether both targets are derived from the same bacterial population. <i>AI-produced illustration.</i>
 
@@ -24,7 +24,7 @@ We distinguish between two types of agreement plots: the <i>population-specific 
 ### population-specific agreement plot
 When both markers accurately detect the same bacterial population, the difference between their measurements shows minimal bias, and the limits of agreement (LoAs) stay within predefined acceptable thresholds (Fig. 2). In this case, data points tend to cluster along the x‑axis and lie close to the line of equality (LoE). This indicates that the two genetic markers are conditionally dependent, supporting the validity of the dual‑target combination.
 
-<iframe src="https://wmiellet.github.io/plot.html" width="100%" height="350" frameborder="0"></iframe>
+<iframe src="https://wmiellet.github.io/assets/plot.html" width="100%" height="350" frameborder="0"></iframe>
 
 ###### Figure 2: [Legend text].
 
@@ -32,7 +32,7 @@ In some cases, binary agreement in classification may be suboptimal due to the p
 
 If two genetic markers are rarely found together in a given bacterial population, conditional independence between them is observed. Here, the bias between markers is often substantial, and the LoAs exceed the predefined acceptable limits (Fig. 3). Data points tend to scatter randomly across the Bland–Altman plot.
 
-<iframe src="https://wmiellet.github.io/plot2.html" width="100%" height="350" frameborder="0"></iframe>
+<iframe src="https://wmiellet.github.io/assets/plot2.html" width="100%" height="350" frameborder="0"></iframe>
 
 ###### Figure 3: [Legend text].
 
@@ -61,9 +61,9 @@ When two genetic markers exhibit poor agreement in binar classification due to o
 ## Produce an agreement plot with your own data!
 <i>Upload your data as CSV file and create your own agreement plots.</i>
 
-[population-specific agreement plot](https://wmiellet.github.io/data_upload4.html).
+[population-specific agreement plot](https://wmiellet.github.io/assets/data_upload4.html).
 
-[serotyping agreement plot](https://wmiellet.github.io/serotype_ranking4.html).
+[serotyping agreement plot](https://wmiellet.github.io/assets/serotype_ranking4.html).
 
 ## Limitations
 While combining two genetic markers (particularly those belonging to different connectivity networks) can improve the specificity of molecular detection, the proposed method has a number of limitations. Importantly, diagnostic specificity can be excquisitely monitored but not controlled for when due to subgroup variation in bacterial composition, a specimen type exhibits lack of conditional dependence. In such instances, investigators can consider to redesign molecular targets in an attempt to improve diagnostic specificity or utilize alternative approaches, such a microfluidics-mediated linkage analysis [7]. Furthermore, it is important to recognize that agreement plots (and agreement indices) provide validatiy at the assay level (i.e., performance across a set of samples). They cannot distinguish between false-positive and true-positive results for individual samples, as good agreement for a single sample may occur by random chance. Finally, the predefined acceptable limits used to evaluate the limits of agreement (LoAs) are arbitrary, and the LoAs themselves are insufficient to guide interpretation on their own.
@@ -92,6 +92,6 @@ Miellet, Willem R., et al. "It takes two to tango: combining conventional cultur
 email: w.r.miellet-2(at)umcutrecht.nl
 
 ##### other links
-##### [PCR efficiency estimation](https://wmiellet.github.io/pcr_efficiency.html).
+##### [PCR efficiency estimation](https://wmiellet.github.io/assets/pcr_efficiency.html).
 
-##### [qPCR Cq multi-modality cutoff assessment](https://wmiellet.github.io/bimodality_cutoff.html).
+##### [qPCR Cq multi-modality cutoff assessment](https://wmiellet.github.io/assets/bimodality_cutoff.html).
