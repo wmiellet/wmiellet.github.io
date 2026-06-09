@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Bland‑Altman Plot & ICC (Cq Values) v21.0</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        #progressContainer { width: 100%; max-width: 500px; margin: 15px 0; display: none; }
+        .progress-bg { background: #e0e0e0; border-radius: 6px; height: 28px; overflow: hidden; }
+        .progress-fill { width: 0%; height: 100%; background: #4CAF50; border-radius: 6px;
+                         text-align: center; color: white; line-height: 28px; font-weight: bold; }
+        #statusMsg { margin: 10px 0; color: #555; font-style: italic; }
+        #mainContainer { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+        #chartContainer { flex: 1 1 600px; min-width: 0; }
+        #controlPanel { flex: 0 0 280px; background: #f9f9f9; border: 1px solid #ddd;
+                        border-radius: 6px; padding: 15px; font-size: 13px; }
+        #controlPanel h3 { margin-top: 0; font-size: 15px; }
+        #controlPanel label { display: block; margin: 6px 0; cursor: pointer; }
+        #controlPanel select, #controlPanel input[type="number"] { width: 100%; padding: 4px; margin-bottom: 10px; box-sizing: border-box; }
+        #controlPanel input[type="checkbox"] { margin-right: 6px; }
+        #statsDisplay { margin-top: 12px; padding: 8px; background: #fff; border: 1px solid #eee;
+                        border-radius: 4px; line-height: 1.6; }
+        #statsDisplay span { font-weight: bold; }
+        #columnNamesDisplay { margin-bottom: 10px; font-size: 13px; color: #555; }
+        #chart { width: 100%; height: 380px; }
+        .agreement-stat { margin-top: 10px; font-size: 14px; color: #666; }
+        .diagnostic-plot { width: 100%; height: 350px; margin-bottom: 20px; }
+        .diagnostic-container { display: flex; flex-wrap: wrap; gap: 20px; justify-content: space-between; }
+        .diagnostic-item { flex: 1 1 45%; min-width: 300px; }
+        .diagnostic-title { font-weight: bold; margin-bottom: 5px; }
+        .correlation-container { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+        .correlation-plot { flex: 1 1 400px; }
+    </style>
+</head>
+<body>
+    <h1>Bland‑Altman Plot (Cq Values) v21.0</h1>
+    <p>Upload a CSV with a header. The first two columns must be numeric Cq values. (Row names are handled automatically.)</p>
+
+    <input type="file" id="csvFile" accept=".csv" />
+
+    <div id="progressContainer">
+        <div class="progress-bg">
+            <div id="progressBar" class="progress-fill" style="width: 0%;">0%</div>
+        </div>
+        <div id="statusMsg"></div>
+    </div>
+
+    <div id="mainContainer" style="display:none;">
+        <div id="chartContainer">
+            <div id="columnNamesDisplay"></div>
+            <div id="chart"></div>
+            <div id="iccResult" class="agreement-stat"></div>
+            <div id="kappaResult" class="agreement-stat"></div>
+        </div>
+        <div id="controlPanel">
+            <h3>Plot Controls</h3>
+            <label>Limit method:
+                <select id="methodSelect">
+                    <option value="parametric">Parametric (mean ± 1.96·SD)</option>
+                    <option value="nonparametric" selected>Non‑parametric (percentiles)</option>
+                    <option value="mad">MAD‑based (median ± 1.96·MAD)</option>
+                </select>
+            </label>
+            <label>A priori margin (±):
+                <input type="number" id="aprioriMargin" value="2" step="0.1" min="0">
+            </label>
+            <label>Kappa type:
+                <select id="kappaSelect">
+                    <option value="cohen" selected>Cohen's kappa</option>
+                    <option value="light1">Cond. kappa (Method1 → Method2)</option>
+                    <option value="light2">Cond. kappa (Method2 → Method1)</option>
+                </select>
+            </label>
+            <label><input type="checkbox" id="showBias" checked> Show bias</label>
+            <label><input type="checkbox" id="showUpperLoA" checked> Show upper LoA</label>
+            <label><input type="checkbox" id="showLowerLoA" checked> Show lower LoA</label>
+            <label><input type="checkbox" id="showUpperApriori" checked> Show upper a priori limit</label>
+            <label><input type="checkbox" id="showLowerApriori" checked> Show lower a priori limit</label>
+            <label><input type="checkbox" id="showCI"> Show 95% CIs</label>
+            <label><input type="checkbox" id="showGreyPoints" checked> Show single pos. & double neg.</label>
+            <label><input type="checkbox" id="showZero" checked> Show zero line</label>
+            <label><input type="checkbox" id="showProportionality"> Show proportionality line</label>
+            <label><input type="checkbox" id="showZoneLabels"> Show zone labels</label>
+            <label><input type="checkbox" id="showCorrelation" checked> Show correlation plot</label>
+            <button id="toggleDiagBtn" style="margin-top:10px; width:100%;">Show diagnostic plots</button>
+            <div id="statsDisplay">Upload data to see statistics.</div>
+        </div>
+    </div>
+
+    <!-- Correlation plot (outside diagnostics) -->
+    <div id="correlationContainer" style="display:none; margin-top:20px;">
+        <hr>
+        <h2>Correlation Plot</h2>
+        <div class="correlation-container">
+            <div class="correlation-plot">
+                <div id="xyPlot" class="diagnostic-plot"></div>
+                <div id="xyStats" style="font-size:13px; color:#555;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Diagnostics panel (normality + proportionality only) -->
+    <div id="diagnosticsContainer" style="display:none; margin-top:20px;">
+        <hr>
+        <h2>Diagnostic Plots</h2>
+        <div class="diagnostic-container">
+            <div class="diagnostic-item">
+                <div class="diagnostic-title">Normality of Differences</div>
+                <div id="normPlot" class="diagnostic-plot"></div>
+                <div id="normStats" style="font-size:13px; color:#555;"></div>
+            </div>
+            <div class="diagnostic-item">
+                <div class="diagnostic-title">Proportionality (|diff| vs mean)</div>
+                <div id="propPlot" class="diagnostic-plot"></div>
+                <div id="propStats" style="font-size:13px; color:#555;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { WebR } from 'https://webr.r-wasm.org/v0.4.0/webr.mjs';
+
+        // ---- DOM elements ----
+        const fileInput           = document.getElementById('csvFile');
+        const progBar             = document.getElementById('progressBar');
+        const statusMsg           = document.getElementById('statusMsg');
+        const progCont            = document.getElementById('progressContainer');
+        const mainContainer       = document.getElementById('mainContainer');
+        const chartDiv            = document.getElementById('chart');
+        const iccDiv              = document.getElementById('iccResult');
+        const kappaDiv            = document.getElementById('kappaResult');
+        const statsDisplay        = document.getElementById('statsDisplay');
+        const columnNamesDisplay  = document.getElementById('columnNamesDisplay');
+        const methodSelect        = document.getElementById('methodSelect');
+        const aprioriMarginIn     = document.getElementById('aprioriMargin');
+        const kappaSelect         = document.getElementById('kappaSelect');
+        const cbBias              = document.getElementById('showBias');
+        const cbUpperLoA          = document.getElementById('showUpperLoA');
+        const cbLowerLoA          = document.getElementById('showLowerLoA');
+        const cbUpperApr          = document.getElementById('showUpperApriori');
+        const cbLowerApr          = document.getElementById('showLowerApriori');
+        const cbCI                = document.getElementById('showCI');
+        const cbGrey              = document.getElementById('showGreyPoints');
+        const cbZero              = document.getElementById('showZero');
+        const cbProp              = document.getElementById('showProportionality');
+        const cbZone              = document.getElementById('showZoneLabels');
+        const cbCorr              = document.getElementById('showCorrelation');
+        const toggleDiagBtn       = document.getElementById('toggleDiagBtn');
+        const corrContainer       = document.getElementById('correlationContainer');
+        const diagContainer       = document.getElementById('diagnosticsContainer');
+        const xyPlotDiv           = document.getElementById('xyPlot');
+        const xyStatsDiv          = document.getElementById('xyStats');
+        const normPlotDiv         = document.getElementById('normPlot');
+        const normStatsDiv        = document.getElementById('normStats');
+        const propPlotDiv         = document.getElementById('propPlot');
+        const propStatsDiv        = document.getElementById('propStats');
+
+        // ---- Global state ----
+        let allStats = null;
+        let plotData = null;
+        let diagData = null;
+        let kappaTexts = { cohen: '', light1: '', light2: '' };  // store all three
+        let columnNames = { m1: 'Method1', m2: 'Method2' };
+        let iccText  = '';
+        let currentMethod = 'mad';
+        let diagVisible = false;
+
+        function showProgress(pct, msg) {
+            progCont.style.display = 'block';
+            progBar.style.width = pct + '%';
+            progBar.textContent = pct + '%';
+            statusMsg.textContent = msg || '';
+        }
+        function hideProgress() {
+            setTimeout(() => { progCont.style.display = 'none'; }, 1200);
+        }
+
+        const webR = new WebR();
+        let Rready = false;
+
+        // ---- Initialise R ----
+        (async () => {
+            try {
+                showProgress(5, 'Starting R…');
+                await webR.init();
+                showProgress(20, 'Installing packages (data.table, jsonlite)…');
+                await webR.evalR('webr::install(c("data.table", "jsonlite"))');
+                showProgress(80, 'Loading libraries…');
+                await webR.evalR('library(data.table); library(jsonlite)');
+                Rready = true;
+                showProgress(100, 'Ready. Please upload a CSV file.');
+            } catch (e) {
+                showProgress(0, 'R init failed: ' + e.message);
+                console.error(e);
+                Rready = false;
+            } finally {
+                hideProgress();
+            }
+        })();
+
+        // ---- Decoder ----
+        async function decodeFileToCleanUTF8(file) {
+            const buffer = await file.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+            if (bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4B) {
+                throw new Error('This file appears to be an Excel (.xlsx) or ZIP archive. Please use "Save As → CSV UTF-8".');
+            }
+            let str;
+            if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) {
+                str = new TextDecoder('utf-16le').decode(bytes);
+            } else if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) {
+                str = new TextDecoder('utf-16be').decode(bytes);
+            } else {
+                str = new TextDecoder('utf-8').decode(bytes);
+                if (str.includes('\0')) {
+                    str = new TextDecoder('utf-16le').decode(bytes);
+                    if (str.includes('\0')) str = new TextDecoder('utf-16be').decode(bytes);
+                }
+            }
+            str = str.replace(/\0/g, '');
+            return new TextEncoder().encode(str);
+        }
+
+        // ---- Update kappa display based on dropdown ----
+        function updateKappaDisplay() {
+            if (!kappaTexts) return;
+            const type = kappaSelect.value;
+            let txt = kappaTexts[type] || '';
+            if (txt.startsWith('KAPPA_SKIP')) txt = '';
+            kappaDiv.textContent = txt;
+        }
+
+        // ---- Render main Bland‑Altman plot (with dynamic zone labels) ----
+        function renderPlot() {
+            if (!allStats || !plotData) return;
+
+            const m = currentMethod;
+            const s = allStats[m];
+            const d = plotData;
+            const margin = parseFloat(aprioriMarginIn.value) || 0;
+
+            const xGreen = [], yGreen = [], xGrey = [], yGrey = [];
+            for (let i = 0; i < d.condition.length; i++) {
+                const xi = d.means_all[i];
+                const yi = d.diffs_all[i];
+                if (d.condition[i]) { xGreen.push(xi); yGreen.push(yi); }
+                else { xGrey.push(xi); yGrey.push(yi); }
+            }
+
+            const traces = [];
+            traces.push({
+                x: xGreen, y: yGreen,
+                type: 'scatter', mode: 'markers',
+                marker: { size: 8, color: 'seagreen1', line: { color: 'seagreen', width: 1.5 } },
+                opacity: 0.8, name: 'Both < 40', showlegend: false
+            });
+
+            if (cbGrey.checked && xGrey.length > 0) {
+                traces.push({
+                    x: xGrey, y: yGrey,
+                    type: 'scatter', mode: 'markers',
+                    marker: { size: 6, color: 'grey', line: { color: 'darkgrey', width: 1.5 } },
+                    opacity: 0.4, name: '≥ 40', showlegend: false
+                });
+            }
+
+            const allY = cbGrey.checked ? [...yGreen, ...yGrey] : yGreen;
+            const yMax = Math.max(...allY);
+            const yMin = Math.min(...allY);
+
+            const xMin = 20, xMax = 42;
+
+            function addLine(yVal, color, dash, width, opacity, name, hoverinfo = 'name+y') {
+                traces.push({
+                    x: [xMin, xMax], y: [yVal, yVal],
+                    type: 'scatter', mode: 'lines',
+                    line: { color, width, dash: dash || 'solid' },
+                    opacity: opacity ?? 1,
+                    name, hoverinfo, showlegend: false
+                });
+            }
+
+            if (cbBias.checked) {
+                addLine(s.bias, 'blue', 'solid', 1.5, 0.8, `Bias = ${s.bias.toFixed(3)}`);
+                if (cbCI.checked && s.bias_ci_low != null) {
+                    addLine(s.bias_ci_low, 'blue', 'dash', 1, 0.4, `Bias CI low = ${s.bias_ci_low.toFixed(3)}`);
+                    addLine(s.bias_ci_high, 'blue', 'dash', 1, 0.4, `Bias CI high = ${s.bias_ci_high.toFixed(3)}`);
+                }
+            }
+
+            if (cbUpperLoA.checked) {
+                addLine(s.loa_upper, 'red', 'dash', 1.2, 0.7, `Upper LoA = ${s.loa_upper.toFixed(3)}`);
+                if (cbCI.checked && s.loa_upper_ci_low != null) {
+                    addLine(s.loa_upper_ci_low, 'red', 'dot', 0.8, 0.35, `Upper LoA CI low = ${s.loa_upper_ci_low.toFixed(3)}`);
+                    addLine(s.loa_upper_ci_high, 'red', 'dot', 0.8, 0.35, `Upper LoA CI high = ${s.loa_upper_ci_high.toFixed(3)}`);
+                }
+            }
+
+            if (cbLowerLoA.checked) {
+                addLine(s.loa_lower, 'red', 'dash', 1.2, 0.7, `Lower LoA = ${s.loa_lower.toFixed(3)}`);
+                if (cbCI.checked && s.loa_lower_ci_low != null) {
+                    addLine(s.loa_lower_ci_low, 'red', 'dot', 0.8, 0.35, `Lower LoA CI low = ${s.loa_lower_ci_low.toFixed(3)}`);
+                    addLine(s.loa_lower_ci_high, 'red', 'dot', 0.8, 0.35, `Lower LoA CI high = ${s.loa_lower_ci_high.toFixed(3)}`);
+                }
+            }
+
+            const upperApr = s.bias + margin;
+            const lowerApr = s.bias - margin;
+            if (cbUpperApr.checked) addLine(upperApr, 'green', 'solid', 1.5, 0.7, `Upper a priori limit = ${upperApr.toFixed(3)}`);
+            if (cbLowerApr.checked) addLine(lowerApr, 'green', 'solid', 1.5, 0.7, `Lower a priori limit = ${lowerApr.toFixed(3)}`);
+
+            if (cbProp.checked && s.prop_slope != null) {
+                const y1 = s.prop_intercept + s.prop_slope * xMin;
+                const y2 = s.prop_intercept + s.prop_slope * xMax;
+                traces.push({
+                    x: [xMin, xMax], y: [y1, y2],
+                    type: 'scatter', mode: 'lines',
+                    line: { color: 'magenta', width: 1.5, dash: 'dot' },
+                    name: `Prop trend (p=${s.prop_pval.toFixed(4)})`,
+                    hoverinfo: 'name+y', showlegend: false
+                });
+            }
+
+            if (cbZero.checked) addLine(0, 'black', 'solid', 0.5, 0.25, 'LoE');
+
+            const annotations = [];
+            if (cbZone.checked && allY.length > 0) {
+                annotations.push({
+                    x: 0.98, y: yMax + 1.5,
+                    xref: 'paper', yref: 'y',
+                    text: `${columnNames.m1} > ${columnNames.m2}`,
+                    showarrow: false,
+                    font: { size: 10, color: '#888' },
+                    xanchor: 'right', yanchor: 'bottom'
+                });
+                annotations.push({
+                    x: 0.98, y: yMin - 1.5,
+                    xref: 'paper', yref: 'y',
+                    text: `${columnNames.m2} > ${columnNames.m1}`,
+                    showarrow: false,
+                    font: { size: 10, color: '#888' },
+                    xanchor: 'right', yanchor: 'top'
+                });
+                annotations.push({
+                    x: 0.98, y: 0.5,
+                    xref: 'paper', yref: 'y',
+                    text: `${columnNames.m1} = ${columnNames.m2}`,
+                    showarrow: false,
+                    font: { size: 10, color: '#888' },
+                    xanchor: 'right', yanchor: 'middle'
+                });
+            }
+
+            const layout = {
+                title: 'Cq agreement plot',
+                xaxis: { title: 'Mean of two measurements [Cq]', range: [20, 42], dtick: 5, showgrid: false,
+                         zeroline: false, showline: true, linecolor: 'black', linewidth: 1 },
+                yaxis: { title: 'Difference (marker A - marker B [Cq])', showgrid: false,
+                         zeroline: false, showline: true, linecolor: 'black', linewidth: 1 },
+                width: 650, height: 380,
+                margin: { l: 50, r: 20, b: 50, t: 40 },
+                hovermode: 'closest',
+                plot_bgcolor: 'white', paper_bgcolor: 'white',
+                annotations: annotations
+            };
+
+            Plotly.newPlot('chart', traces, layout);
+
+            statsDisplay.innerHTML = `
+                <span>Bias:</span> ${s.bias.toFixed(3)}<br>
+                <span>Upper LoA:</span> ${s.loa_upper.toFixed(3)}<br>
+                <span>Lower LoA:</span> ${s.loa_lower.toFixed(3)}<br>
+                <span>Upper a priori (±${margin}):</span> ${upperApr.toFixed(3)}<br>
+                <span>Lower a priori (±${margin}):</span> ${lowerApr.toFixed(3)}<br>
+                ${s.bias_ci_low != null ? `<span>Bias 95% CI:</span> [${s.bias_ci_low.toFixed(3)}, ${s.bias_ci_high.toFixed(3)}]<br>` : ''}
+                ${s.loa_upper_ci_low != null ? `<span>Upper LoA 95% CI:</span> [${s.loa_upper_ci_low.toFixed(3)}, ${s.loa_upper_ci_high.toFixed(3)}]<br>` : ''}
+                ${s.loa_lower_ci_low != null ? `<span>Lower LoA 95% CI:</span> [${s.loa_lower_ci_low.toFixed(3)}, ${s.loa_lower_ci_high.toFixed(3)}]` : ''}
+            `;
+        }
+
+        // ---- Render correlation plot ----
+        function renderCorrelation() {
+            if (!diagData) return;
+            const xyTrace = {
+                x: diagData.xy_x, y: diagData.xy_y,
+                type: 'scatter', mode: 'markers',
+                marker: { size: 5, color: 'steelblue' },
+                name: 'Data', showlegend: false
+            };
+            Plotly.newPlot('xyPlot', [xyTrace], {
+                xaxis: { title: `${columnNames.m1} [Cq]` },
+                yaxis: { title: `${columnNames.m2} [Cq]` },
+                width: 400, height: 350,
+                margin: { l: 50, r: 20, b: 50, t: 30 }
+            });
+            xyStatsDiv.innerHTML = `
+                Pearson r = ${diagData.xy_pearson_r.toFixed(4)} (p = ${diagData.xy_pearson_p.toFixed(4)})<br>
+                Spearman ρ = ${diagData.xy_spearman_rho.toFixed(4)} (p = ${diagData.xy_spearman_p.toFixed(4)})
+            `;
+        }
+
+        // ---- Render diagnostics (normality + proportionality only) ----
+        function renderDiagnostics() {
+            if (!diagData) return;
+
+            const diffs = diagData.norm_diffs;
+            const traceHist = {
+                x: diffs,
+                type: 'histogram',
+                histnorm: 'probability density',
+                marker: { color: 'lightblue' },
+                name: 'Differences', showlegend: false
+            };
+            const xRange = [Math.min(...diffs), Math.max(...diffs)];
+            const xVals = [];
+            const step = (xRange[1] - xRange[0]) / 100;
+            for (let i = 0; i <= 100; i++) xVals.push(xRange[0] + i * step);
+            const mean = diagData.norm_mean;
+            const sd = diagData.norm_sd;
+            const yVals = xVals.map(x => (1/(sd * Math.sqrt(2*Math.PI))) * Math.exp(-0.5 * ((x-mean)/sd)**2));
+            const traceNorm = {
+                x: xVals, y: yVals,
+                type: 'scatter', mode: 'lines',
+                line: { color: 'red', width: 2 },
+                name: 'Normal fit', showlegend: false
+            };
+            Plotly.newPlot('normPlot', [traceHist, traceNorm], {
+                xaxis: { title: 'Difference [Cq]' },
+                yaxis: { title: 'Density' },
+                width: 400, height: 350,
+                margin: { l: 50, r: 20, b: 50, t: 30 }
+            });
+            normStatsDiv.innerHTML = `Shapiro‑Wilk p = ${diagData.norm_shapiro_p.toFixed(4)}`;
+
+            const propTrace = {
+                x: diagData.prop_means, y: diagData.prop_absdiffs,
+                type: 'scatter', mode: 'markers',
+                marker: { size: 5, color: 'darkorange' },
+                name: 'Absolute differences', showlegend: false
+            };
+            const xMinP = Math.min(...diagData.prop_means);
+            const xMaxP = Math.max(...diagData.prop_means);
+            const y1 = diagData.prop_intercept + diagData.prop_slope * xMinP;
+            const y2 = diagData.prop_intercept + diagData.prop_slope * xMaxP;
+            const regLine = {
+                x: [xMinP, xMaxP], y: [y1, y2],
+                type: 'scatter', mode: 'lines',
+                line: { color: 'red', width: 2 },
+                name: `Slope p=${diagData.prop_pval.toFixed(4)}`,
+                showlegend: false
+            };
+            Plotly.newPlot('propPlot', [propTrace, regLine], {
+                xaxis: { title: 'Mean of two measurements [Cq]' },
+                yaxis: { title: '|Difference| [Cq]' },
+                width: 400, height: 350,
+                margin: { l: 50, r: 20, b: 50, t: 30 }
+            });
+            propStatsDiv.innerHTML = `Regression slope p = ${diagData.prop_pval.toFixed(4)}`;
+        }
+
+        // ---- Toggle diagnostics ----
+        toggleDiagBtn.addEventListener('click', () => {
+            diagVisible = !diagVisible;
+            diagContainer.style.display = diagVisible ? 'block' : 'none';
+            toggleDiagBtn.textContent = diagVisible ? 'Hide diagnostic plots' : 'Show diagnostic plots';
+            if (diagVisible && diagData) renderDiagnostics();
+        });
+
+        // ---- Correlation checkbox ----
+        cbCorr.addEventListener('change', () => {
+            corrContainer.style.display = cbCorr.checked ? 'block' : 'none';
+            if (cbCorr.checked && diagData) renderCorrelation();
+        });
+
+        // ---- Kappa dropdown ----
+        kappaSelect.addEventListener('change', updateKappaDisplay);
+
+        // ---- Main plot controls ----
+        const controls = [methodSelect, aprioriMarginIn, cbBias, cbUpperLoA, cbLowerLoA,
+                          cbUpperApr, cbLowerApr, cbCI, cbGrey, cbZero, cbProp, cbZone];
+        controls.forEach(el => {
+            el.addEventListener('change', () => {
+                currentMethod = methodSelect.value;
+                renderPlot();
+            });
+            if (el.type === 'number') el.addEventListener('input', () => {
+                currentMethod = methodSelect.value;
+                renderPlot();
+            });
+        });
+
+        // ---- Handle CSV upload ----
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            if (!Rready) { alert('R is not ready. Please wait and try again.'); return; }
+
+            try {
+                showProgress(10, 'Reading file…');
+                const utf8Bytes = await decodeFileToCleanUTF8(file);
+                showProgress(40, 'Sending to R…');
+                await webR.FS.writeFile('/home/data.csv', utf8Bytes);
+                showProgress(60, 'Computing all statistics and diagnostics…');
+                chartDiv.innerHTML = '';
+                iccDiv.innerHTML = '';
+                kappaDiv.innerHTML = '';
+                diagContainer.style.display = 'none';
+                diagVisible = false;
+                toggleDiagBtn.textContent = 'Show diagnostic plots';
+                mainContainer.style.display = 'none';
+                corrContainer.style.display = cbCorr.checked ? 'block' : 'none';
+
+                const rawResult = await webR.evalR(`
+                    library(data.table)
+                    library(jsonlite)
+
+                    dt <- fread("/home/data.csv", header = TRUE)
+                    cn <- names(dt)
+                    if (ncol(dt) >= 3 && (cn[1] == "" || cn[1] == "V1")) {
+                        cols_use <- 2:3
+                    } else {
+                        cols_use <- 1:2
+                    }
+                    method1_name <- cn[cols_use[1]]
+                    method2_name <- cn[cols_use[2]]
+
+                    dt <- dt[, ..cols_use]
+                    setnames(dt, c("Method1", "Method2"))
+                    dt <- na.omit(dt)
+
+                    dt[, Method1 := round(Method1, 2)]
+                    dt[, Method2 := round(Method2, 2)]
+                    dt[, mean_val := round((Method1 + Method2) / 2, 2)]
+                    dt[, diff_val := round(Method1 - Method2, 2)]
+                    dt[, condition := Method1 < 40 & Method2 < 40]
+
+                    sub <- dt[condition == TRUE]
+                    diffs_all <- sub$diff_val
+                    n <- length(diffs_all)
+
+                    # ----- BA stats (unchanged) -----
+                    mean_diff <- mean(diffs_all)
+                    sd_diff <- sd(diffs_all)
+                    loa_up_p <- mean_diff + 1.96 * sd_diff
+                    loa_lo_p <- mean_diff - 1.96 * sd_diff
+                    se_bias_p <- sd_diff / sqrt(n)
+                    t_crit <- qt(0.975, n-1)
+                    bias_ci_lo_p <- mean_diff - t_crit * se_bias_p
+                    bias_ci_hi_p <- mean_diff + t_crit * se_bias_p
+                    se_loa_p <- sqrt(3 * sd_diff^2 / n)
+                    loa_up_ci_lo_p <- loa_up_p - t_crit * se_loa_p
+                    loa_up_ci_hi_p <- loa_up_p + t_crit * se_loa_p
+                    loa_lo_ci_lo_p <- loa_lo_p - t_crit * se_loa_p
+                    loa_lo_ci_hi_p <- loa_lo_p + t_crit * se_loa_p
+
+                    median_diff <- median(diffs_all)
+                    loa_up_np <- as.numeric(quantile(diffs_all, 0.975))
+                    loa_lo_np <- as.numeric(quantile(diffs_all, 0.025))
+                    set.seed(42)
+                    B <- 300
+                    boot_median <- boot_loa_up <- boot_loa_lo <- numeric(B)
+                    for (i in 1:B) {
+                        s <- sample(diffs_all, replace = TRUE)
+                        boot_median[i] <- median(s)
+                        boot_loa_up[i] <- as.numeric(quantile(s, 0.975))
+                        boot_loa_lo[i] <- as.numeric(quantile(s, 0.025))
+                    }
+                    bias_ci_lo_np <- as.numeric(quantile(boot_median, 0.025))
+                    bias_ci_hi_np <- as.numeric(quantile(boot_median, 0.975))
+                    loa_up_ci_lo_np <- as.numeric(quantile(boot_loa_up, 0.025))
+                    loa_up_ci_hi_np <- as.numeric(quantile(boot_loa_up, 0.975))
+                    loa_lo_ci_lo_np <- as.numeric(quantile(boot_loa_lo, 0.025))
+                    loa_lo_ci_hi_np <- as.numeric(quantile(boot_loa_lo, 0.975))
+
+                    MAD_val <- median(abs(diffs_all - median_diff))
+                    loa_up_mad <- median_diff + 1.96 * MAD_val
+                    loa_lo_mad <- median_diff - 1.96 * MAD_val
+                    boot_median2 <- boot_loa_up_mad <- boot_loa_lo_mad <- numeric(B)
+                    for (i in 1:B) {
+                        s <- sample(diffs_all, replace = TRUE)
+                        md <- median(s)
+                        mad_i <- median(abs(s - md))
+                        boot_median2[i] <- md
+                        boot_loa_up_mad[i] <- md + 1.96 * mad_i
+                        boot_loa_lo_mad[i] <- md - 1.96 * mad_i
+                    }
+                    bias_ci_lo_mad <- as.numeric(quantile(boot_median2, 0.025))
+                    bias_ci_hi_mad <- as.numeric(quantile(boot_median2, 0.975))
+                    loa_up_ci_lo_mad <- as.numeric(quantile(boot_loa_up_mad, 0.025))
+                    loa_up_ci_hi_mad <- as.numeric(quantile(boot_loa_up_mad, 0.975))
+                    loa_lo_ci_lo_mad <- as.numeric(quantile(boot_loa_lo_mad, 0.025))
+                    loa_lo_ci_hi_mad <- as.numeric(quantile(boot_loa_lo_mad, 0.975))
+
+                    prop_model <- lm(diff_val ~ mean_val, data = sub)
+                    prop_slope <- coef(prop_model)[2]
+                    prop_intercept <- coef(prop_model)[1]
+                    prop_pval <- summary(prop_model)$coefficients[2,4]
+
+                    xy_x <- dt$Method1
+                    xy_y <- dt$Method2
+                    xy_pearson <- cor.test(dt$Method1, dt$Method2, method = "pearson")
+                    xy_spearman <- cor.test(dt$Method1, dt$Method2, method = "spearman")
+
+                    shapiro_test <- shapiro.test(sub$diff_val)
+                    norm_mean <- mean(sub$diff_val)
+                    norm_sd <- sd(sub$diff_val)
+
+                    sub_abs <- sub[, .(absdiff = abs(diff_val), mean_val)]
+                    prop_abs_model <- lm(absdiff ~ mean_val, data = sub_abs)
+                    prop_abs_slope <- coef(prop_abs_model)[2]
+                    prop_abs_intercept <- coef(prop_abs_model)[1]
+                    prop_abs_pval <- summary(prop_abs_model)$coefficients[2,4]
+
+                    # ----- CONDITIONAL KAPPA (replaces Light's kappa) -----
+                    dt_bin <- copy(dt)
+                    dt_bin[, pos1 := ifelse(Method1 < 40, 1, 0)]
+                    dt_bin[, pos2 := ifelse(Method2 < 40, 1, 0)]
+                    tab <- table(factor(dt_bin$pos1, levels = c(0,1)),
+                                 factor(dt_bin$pos2, levels = c(0,1)))
+                    N_total <- sum(tab)
+                    dn <- tab[1,1]   # double negatives
+
+                    kappa_cohen_text <- ""
+                    kappa_cond21_text <- ""   # K_{2|1}: Method1 → Method2
+                    kappa_cond12_text <- ""   # K_{1|2}: Method2 → Method1
+
+                    if (is.na(dn) || dn < 2) {
+                        kappa_cohen_text <- "KAPPA_SKIP: insufficient double negatives"
+                        kappa_cond21_text <- "KAPPA_SKIP: insufficient double negatives"
+                        kappa_cond12_text <- "KAPPA_SKIP: insufficient double negatives"
+                    } else {
+                        # Cohen's kappa (unchanged)
+                        po <- sum(diag(tab)) / N_total
+                        row_m <- rowSums(tab) / N_total
+                        col_m <- colSums(tab) / N_total
+                        pe_cohen <- sum(row_m * col_m)
+                        k_cohen <- (po - pe_cohen) / (1 - pe_cohen)
+                        se_cohen <- sqrt((po * (1 - po)) / (N_total * (1 - pe_cohen)^2))
+                        ci_lo_c <- max(k_cohen - 1.96*se_cohen, -1)
+                        ci_hi_c <- min(k_cohen + 1.96*se_cohen, 1)
+                        kappa_cohen_text <- paste0("Cohen's kappa (binary: <40 positive) = ",
+                                                   round(k_cohen,3),
+                                                   " (95% CI: ", round(ci_lo_c,3), " \u2013 ", round(ci_hi_c,3), ")")
+
+                        # conditional kappa functions
+                        compute_kappa21 <- function(p_row, p_col, p_ii) {
+                            # K_{2|1} = sum_i p_row[i] * (p_ii[i] - p_row[i]*p_col[i]) / (p_row[i]*(1-p_col[i]))
+                            k_vals <- numeric(2)
+                            for (i in 1:2) {
+                                num <- p_ii[i] - p_row[i] * p_col[i]
+                                den <- p_row[i] * (1 - p_col[i])
+                                if (den == 0) {
+                                    k_vals[i] <- ifelse(abs(num) < 1e-12, 1, 0)
+                                } else {
+                                    k_vals[i] <- num / den
+                                }
+                            }
+                            sum(p_row * k_vals)
+                        }
+                        compute_kappa12 <- function(p_row, p_col, p_ii) {
+                            # K_{1|2} = sum_i p_col[i] * (p_ii[i] - p_row[i]*p_col[i]) / (p_col[i]*(1-p_row[i]))
+                            k_vals <- numeric(2)
+                            for (i in 1:2) {
+                                num <- p_ii[i] - p_row[i] * p_col[i]
+                                den <- p_col[i] * (1 - p_row[i])
+                                if (den == 0) {
+                                    k_vals[i] <- ifelse(abs(num) < 1e-12, 1, 0)
+                                } else {
+                                    k_vals[i] <- num / den
+                                }
+                            }
+                            sum(p_col * k_vals)
+                        }
+
+                        p_row_hat <- rowSums(tab) / N_total
+                        p_col_hat <- colSums(tab) / N_total
+                        p_ii_hat <- diag(tab) / N_total
+
+                        k21_point <- compute_kappa21(p_row_hat, p_col_hat, p_ii_hat)
+                        k12_point <- compute_kappa12(p_row_hat, p_col_hat, p_ii_hat)
+
+                        # Bootstrap CIs for conditional kappas
+                        set.seed(42)
+                        B_k <- 300
+                        boot_k21 <- numeric(B_k)
+                        boot_k12 <- numeric(B_k)
+                        pairs <- cbind(dt_bin$pos1, dt_bin$pos2)
+                        n_pairs <- nrow(pairs)
+                        for (b in 1:B_k) {
+                            idx <- sample(1:n_pairs, replace = TRUE)
+                            tab_b <- table(factor(pairs[idx,1], levels=0:1), factor(pairs[idx,2], levels=0:1))
+                            if (sum(tab_b) > 0) {
+                                p_row_b <- rowSums(tab_b) / sum(tab_b)
+                                p_col_b <- colSums(tab_b) / sum(tab_b)
+                                p_ii_b <- diag(tab_b) / sum(tab_b)
+                                boot_k21[b] <- compute_kappa21(p_row_b, p_col_b, p_ii_b)
+                                boot_k12[b] <- compute_kappa12(p_row_b, p_col_b, p_ii_b)
+                            } else {
+                                boot_k21[b] <- NA
+                                boot_k12[b] <- NA
+                            }
+                        }
+                        boot_k21 <- boot_k21[!is.na(boot_k21)]
+                        boot_k12 <- boot_k12[!is.na(boot_k12)]
+                        ci21_lo <- quantile(boot_k21, 0.025, na.rm=TRUE)
+                        ci21_hi <- quantile(boot_k21, 0.975, na.rm=TRUE)
+                        ci12_lo <- quantile(boot_k12, 0.025, na.rm=TRUE)
+                        ci12_hi <- quantile(boot_k12, 0.975, na.rm=TRUE)
+
+                        kappa_cond21_text <- paste0("Conditional kappa (", method1_name, " → ", method2_name, ") = ",
+                                                    round(k21_point,3),
+                                                    " (95% CI: ", round(ci21_lo,3), " \u2013 ", round(ci21_hi,3), ")")
+                        kappa_cond12_text <- paste0("Conditional kappa (", method2_name, " → ", method1_name, ") = ",
+                                                    round(k12_point,3),
+                                                    " (95% CI: ", round(ci12_lo,3), " \u2013 ", round(ci12_hi,3), ")")
+                    }
+
+                    toJSON(list(
+                        means_all  = dt$mean_val,
+                        diffs_all  = dt$diff_val,
+                        condition  = dt$condition,
+                        method1_name = method1_name,
+                        method2_name = method2_name,
+                        parametric = list(
+                            bias = mean_diff, loa_upper = loa_up_p, loa_lower = loa_lo_p,
+                            bias_ci_low = bias_ci_lo_p, bias_ci_high = bias_ci_hi_p,
+                            loa_upper_ci_low = loa_up_ci_lo_p, loa_upper_ci_high = loa_up_ci_hi_p,
+                            loa_lower_ci_low = loa_lo_ci_lo_p, loa_lower_ci_high = loa_lo_ci_hi_p,
+                            prop_slope = prop_slope, prop_intercept = prop_intercept, prop_pval = prop_pval
+                        ),
+                        nonparametric = list(
+                            bias = median_diff, loa_upper = loa_up_np, loa_lower = loa_lo_np,
+                            bias_ci_low = bias_ci_lo_np, bias_ci_high = bias_ci_hi_np,
+                            loa_upper_ci_low = loa_up_ci_lo_np, loa_upper_ci_high = loa_up_ci_hi_np,
+                            loa_lower_ci_low = loa_lo_ci_lo_np, loa_lower_ci_high = loa_lo_ci_hi_np,
+                            prop_slope = prop_slope, prop_intercept = prop_intercept, prop_pval = prop_pval
+                        ),
+                        mad = list(
+                            bias = median_diff, loa_upper = loa_up_mad, loa_lower = loa_lo_mad,
+                            bias_ci_low = bias_ci_lo_mad, bias_ci_high = bias_ci_hi_mad,
+                            loa_upper_ci_low = loa_up_ci_lo_mad, loa_upper_ci_high = loa_up_ci_hi_mad,
+                            loa_lower_ci_low = loa_lo_ci_lo_mad, loa_lower_ci_high = loa_lo_ci_hi_mad,
+                            prop_slope = prop_slope, prop_intercept = prop_intercept, prop_pval = prop_pval
+                        ),
+                        kappa_cohen = kappa_cohen_text,
+                        kappa_light1 = kappa_cond21_text,
+                        kappa_light2 = kappa_cond12_text,
+                        xy_x = xy_x, xy_y = xy_y,
+                        xy_pearson_r = as.numeric(xy_pearson$estimate), xy_pearson_p = xy_pearson$p.value,
+                        xy_spearman_rho = as.numeric(xy_spearman$estimate), xy_spearman_p = xy_spearman$p.value,
+                        norm_diffs = sub$diff_val,
+                        norm_shapiro_p = shapiro_test$p.value,
+                        norm_mean = norm_mean, norm_sd = norm_sd,
+                        prop_means = sub_abs$mean_val,
+                        prop_absdiffs = sub_abs$absdiff,
+                        prop_intercept = prop_abs_intercept,
+                        prop_slope = prop_abs_slope,
+                        prop_pval = prop_abs_pval
+                    ), auto_unbox = TRUE)
+                `);
+
+                const jsonStr = await rawResult.toString();
+                const fullData = JSON.parse(jsonStr);
+
+                columnNames = {
+                    m1: fullData.method1_name || 'Method1',
+                    m2: fullData.method2_name || 'Method2'
+                };
+                columnNamesDisplay.textContent = `Method1: ${columnNames.m1}    Method2: ${columnNames.m2}`;
+
+                allStats = {
+                    parametric: fullData.parametric,
+                    nonparametric: fullData.nonparametric,
+                    mad: fullData.mad
+                };
+                plotData = {
+                    means_all: fullData.means_all,
+                    diffs_all: fullData.diffs_all,
+                    condition: fullData.condition
+                };
+                diagData = {
+                    xy_x: fullData.xy_x,
+                    xy_y: fullData.xy_y,
+                    xy_pearson_r: fullData.xy_pearson_r,
+                    xy_pearson_p: fullData.xy_pearson_p,
+                    xy_spearman_rho: fullData.xy_spearman_rho,
+                    xy_spearman_p: fullData.xy_spearman_p,
+                    norm_diffs: fullData.norm_diffs,
+                    norm_shapiro_p: fullData.norm_shapiro_p,
+                    norm_mean: fullData.norm_mean,
+                    norm_sd: fullData.norm_sd,
+                    prop_means: fullData.prop_means,
+                    prop_absdiffs: fullData.prop_absdiffs,
+                    prop_intercept: fullData.prop_intercept,
+                    prop_slope: fullData.prop_slope,
+                    prop_pval: fullData.prop_pval
+                };
+
+                // Store kappa texts (cohen, cond21, cond12)
+                kappaTexts = {
+                    cohen: (fullData.kappa_cohen || ''),
+                    light1: (fullData.kappa_light1 || ''),
+                    light2: (fullData.kappa_light2 || '')
+                };
+
+                // ICC (unchanged)
+                showProgress(75, 'Computing ICC…');
+                const iccRaw = await webR.evalR(`
+                    library(data.table)
+                    dt <- fread("/home/data.csv", header = TRUE)
+                    cn <- names(dt)
+                    if (ncol(dt) >= 3 && (cn[1] == "" || cn[1] == "V1")) {
+                        cols_use <- 2:3 } else { cols_use <- 1:2 }
+                    dt <- dt[, ..cols_use]
+                    setnames(dt, c("Method1", "Method2"))
+                    dt <- na.omit(dt)
+                    dt <- dt[Method1 < 40 & Method2 < 40]
+                    result <- tryCatch({
+                        n <- nrow(dt)
+                        if (n < 3) stop("Need at least 3 complete pairs to compute ICC.")
+                        if (sd(dt$Method1) == 0 || sd(dt$Method2) == 0)
+                            stop("One method has no variability; ICC cannot be computed.")
+                        dt_long <- melt(dt, id.vars = NULL, measure.vars = c("Method1","Method2"),
+                                        variable.name = "method", value.name = "value")
+                        dt_long[, subject := rep(1:n, times = 2)]
+                        aov_m <- aov(value ~ factor(method) + factor(subject), data = dt_long)
+                        atab <- summary(aov_m)[[1]]
+                        MS_s <- atab["factor(subject)", "Mean Sq"]
+                        MS_e <- atab["Residuals", "Mean Sq"]
+                        if (MS_s <= MS_e) { "ICC = 0.0000 (no positive correlation detected)" }
+                        else {
+                            ICC <- (MS_s - MS_e) / (MS_s + MS_e)
+                            df_s <- n - 1; df_e <- n - 1
+                            F_obs <- MS_s / MS_e
+                            F_lo <- F_obs / qf(0.975, df_s, df_e)
+                            F_hi <- F_obs * qf(0.975, df_e, df_s)
+                            LCI <- (F_lo - 1) / (F_lo + 1)
+                            UCI <- (F_hi - 1) / (F_hi + 1)
+                            paste0("ICC (two-way consistency, single measure) = ",
+                                   round(ICC,3), " (95% CI: ", round(LCI,3), " \u2013 ", round(UCI,3), ")")
+                        }
+                    }, error = function(e) paste("ICC calculation failed:", e$message))
+                    result
+                `);
+                iccText = (await iccRaw.toString()).trim();
+                if (iccText.startsWith('"')) iccText = iccText.slice(1, -1);
+
+                showProgress(80, 'Rendering plot…');
+                mainContainer.style.display = 'flex';
+                iccDiv.textContent = iccText;
+                currentMethod = methodSelect.value;
+                updateKappaDisplay();
+                renderPlot();
+
+                if (cbCorr.checked) renderCorrelation();
+
+                showProgress(100, 'Plot, ICC and kappa ready!');
+            } catch (err) {
+                console.error(err);
+                showProgress(0, 'Error: ' + err.message);
+                alert('Processing failed: ' + err.message);
+                iccDiv.textContent = '';
+                kappaDiv.textContent = '';
+                mainContainer.style.display = 'none';
+                corrContainer.style.display = 'none';
+            } finally {
+                hideProgress();
+            }
+        });
+    </script>
+    <footer style="margin-top: 40px; padding: 16px; text-align: center; border-top: 1px solid #ccc; font-size: 0.8rem; color: #666;">
+        citation: Miellet et al. Frontiers in microbiology 13 (2022): 859736.
+    </footer>
+</body>
+</html>
