@@ -160,7 +160,7 @@
         let allStats = null;
         let plotData = null;
         let diagData = null;
-        let kappaTexts = { cohen: '', light1: '', light2: '' };  // store all three
+        let kappaTexts = { cohen: '', light1: '', light2: '' };
         let columnNames = { m1: 'Method1', m2: 'Method2' };
         let iccText  = '';
         let currentMethod = 'mad';
@@ -222,7 +222,6 @@
             return new TextEncoder().encode(str);
         }
 
-        // ---- Update kappa display based on dropdown ----
         function updateKappaDisplay() {
             if (!kappaTexts) return;
             const type = kappaSelect.value;
@@ -231,7 +230,7 @@
             kappaDiv.textContent = txt;
         }
 
-        // ---- Render main Bland‑Altman plot (with dynamic zone labels) ----
+        // ---- Render main Bland‑Altman plot ----
         function renderPlot() {
             if (!allStats || !plotData) return;
 
@@ -268,7 +267,6 @@
             const allY = cbGrey.checked ? [...yGreen, ...yGrey] : yGreen;
             const yMax = Math.max(...allY);
             const yMin = Math.min(...allY);
-
             const xMin = 20, xMax = 42;
 
             function addLine(yVal, color, dash, width, opacity, name, hoverinfo = 'name+y') {
@@ -379,7 +377,6 @@
             `;
         }
 
-        // ---- Render correlation plot ----
         function renderCorrelation() {
             if (!diagData) return;
             const xyTrace = {
@@ -400,10 +397,8 @@
             `;
         }
 
-        // ---- Render diagnostics (normality + proportionality only) ----
         function renderDiagnostics() {
             if (!diagData) return;
-
             const diffs = diagData.norm_diffs;
             const traceHist = {
                 x: diffs,
@@ -459,7 +454,6 @@
             propStatsDiv.innerHTML = `Regression slope p = ${diagData.prop_pval.toFixed(4)}`;
         }
 
-        // ---- Toggle diagnostics ----
         toggleDiagBtn.addEventListener('click', () => {
             diagVisible = !diagVisible;
             diagContainer.style.display = diagVisible ? 'block' : 'none';
@@ -467,16 +461,13 @@
             if (diagVisible && diagData) renderDiagnostics();
         });
 
-        // ---- Correlation checkbox ----
         cbCorr.addEventListener('change', () => {
             corrContainer.style.display = cbCorr.checked ? 'block' : 'none';
             if (cbCorr.checked && diagData) renderCorrelation();
         });
 
-        // ---- Kappa dropdown ----
         kappaSelect.addEventListener('change', updateKappaDisplay);
 
-        // ---- Main plot controls ----
         const controls = [methodSelect, aprioriMarginIn, cbBias, cbUpperLoA, cbLowerLoA,
                           cbUpperApr, cbLowerApr, cbCI, cbGrey, cbZero, cbProp, cbZone];
         controls.forEach(el => {
@@ -539,7 +530,7 @@
                     diffs_all <- sub$diff_val
                     n <- length(diffs_all)
 
-                    # ----- BA stats (unchanged) -----
+                    # BA stats (unchanged)
                     mean_diff <- mean(diffs_all)
                     sd_diff <- sd(diffs_all)
                     loa_up_p <- mean_diff + 1.96 * sd_diff
@@ -612,25 +603,25 @@
                     prop_abs_intercept <- coef(prop_abs_model)[1]
                     prop_abs_pval <- summary(prop_abs_model)$coefficients[2,4]
 
-                    # ----- CONDITIONAL KAPPA (replaces Light's kappa) -----
+                    # ----- Conditional kappa according to user's formula -----
                     dt_bin <- copy(dt)
                     dt_bin[, pos1 := ifelse(Method1 < 40, 1, 0)]
                     dt_bin[, pos2 := ifelse(Method2 < 40, 1, 0)]
                     tab <- table(factor(dt_bin$pos1, levels = c(0,1)),
                                  factor(dt_bin$pos2, levels = c(0,1)))
                     N_total <- sum(tab)
-                    dn <- tab[1,1]   # double negatives
+                    dn <- tab[1,1]  # double negatives
 
                     kappa_cohen_text <- ""
-                    kappa_cond21_text <- ""   # K_{2|1}: Method1 → Method2
-                    kappa_cond12_text <- ""   # K_{1|2}: Method2 → Method1
+                    kappa_cond21_text <- ""   # K2|1 = (p11 - p1+ p+1)/(1-p1+) + (p00 - p0+ p+0)/(1-p0+)
+                    kappa_cond12_text <- ""   # K1|2 = (p11 - p1+ p+1)/(1-p+1) + (p00 - p0+ p+0)/(1-p+0)
 
                     if (is.na(dn) || dn < 2) {
                         kappa_cohen_text <- "KAPPA_SKIP: insufficient double negatives"
                         kappa_cond21_text <- "KAPPA_SKIP: insufficient double negatives"
                         kappa_cond12_text <- "KAPPA_SKIP: insufficient double negatives"
                     } else {
-                        # Cohen's kappa (unchanged)
+                        # Cohen's kappa
                         po <- sum(diag(tab)) / N_total
                         row_m <- rowSums(tab) / N_total
                         col_m <- colSums(tab) / N_total
@@ -643,44 +634,25 @@
                                                    round(k_cohen,3),
                                                    " (95% CI: ", round(ci_lo_c,3), " \u2013 ", round(ci_hi_c,3), ")")
 
-                        # conditional kappa functions
-                        compute_kappa21 <- function(p_row, p_col, p_ii) {
-                            # K_{2|1} = sum_i p_row[i] * (p_ii[i] - p_row[i]*p_col[i]) / (p_row[i]*(1-p_col[i]))
-                            k_vals <- numeric(2)
-                            for (i in 1:2) {
-                                num <- p_ii[i] - p_row[i] * p_col[i]
-                                den <- p_row[i] * (1 - p_col[i])
-                                if (den == 0) {
-                                    k_vals[i] <- ifelse(abs(num) < 1e-12, 1, 0)
-                                } else {
-                                    k_vals[i] <- num / den
-                                }
-                            }
-                            sum(p_row * k_vals)
-                        }
-                        compute_kappa12 <- function(p_row, p_col, p_ii) {
-                            # K_{1|2} = sum_i p_col[i] * (p_ii[i] - p_row[i]*p_col[i]) / (p_col[i]*(1-p_row[i]))
-                            k_vals <- numeric(2)
-                            for (i in 1:2) {
-                                num <- p_ii[i] - p_row[i] * p_col[i]
-                                den <- p_col[i] * (1 - p_row[i])
-                                if (den == 0) {
-                                    k_vals[i] <- ifelse(abs(num) < 1e-12, 1, 0)
-                                } else {
-                                    k_vals[i] <- num / den
-                                }
-                            }
-                            sum(p_col * k_vals)
-                        }
+                        # Extract proportions
+                        p11 <- tab[2,2] / N_total   # both positive (assuming level2 = 1)
+                        p00 <- tab[1,1] / N_total
+                        p1p <- row_m[2]   # p1+ (positive margin rater1)
+                        p0p <- row_m[1]   # p0+
+                        pp1 <- col_m[2]   # p+1
+                        pp0 <- col_m[1]   # p+0
 
-                        p_row_hat <- rowSums(tab) / N_total
-                        p_col_hat <- colSums(tab) / N_total
-                        p_ii_hat <- diag(tab) / N_total
+                        # K2|1 according to user: (p11 - p1p*pp1)/(1-p1p) + (p00 - p0p*pp0)/(1-p0p)
+                        term1_21 <- (p11 - p1p*pp1) / (1 - p1p)
+                        term2_21 <- (p00 - p0p*pp0) / (1 - p0p)
+                        k21_point <- term1_21 + term2_21
 
-                        k21_point <- compute_kappa21(p_row_hat, p_col_hat, p_ii_hat)
-                        k12_point <- compute_kappa12(p_row_hat, p_col_hat, p_ii_hat)
+                        # K1|2: (p11 - p1p*pp1)/(1-pp1) + (p00 - p0p*pp0)/(1-pp0)
+                        term1_12 <- (p11 - p1p*pp1) / (1 - pp1)
+                        term2_12 <- (p00 - p0p*pp0) / (1 - pp0)
+                        k12_point <- term1_12 + term2_12
 
-                        # Bootstrap CIs for conditional kappas
+                        # Bootstrap CIs for both
                         set.seed(42)
                         B_k <- 300
                         boot_k21 <- numeric(B_k)
@@ -691,11 +663,23 @@
                             idx <- sample(1:n_pairs, replace = TRUE)
                             tab_b <- table(factor(pairs[idx,1], levels=0:1), factor(pairs[idx,2], levels=0:1))
                             if (sum(tab_b) > 0) {
-                                p_row_b <- rowSums(tab_b) / sum(tab_b)
-                                p_col_b <- colSums(tab_b) / sum(tab_b)
-                                p_ii_b <- diag(tab_b) / sum(tab_b)
-                                boot_k21[b] <- compute_kappa21(p_row_b, p_col_b, p_ii_b)
-                                boot_k12[b] <- compute_kappa12(p_row_b, p_col_b, p_ii_b)
+                                N_b <- sum(tab_b)
+                                row_b <- rowSums(tab_b) / N_b
+                                col_b <- colSums(tab_b) / N_b
+                                p11_b <- if (nrow(tab_b)>=2 && ncol(tab_b)>=2) tab_b[2,2]/N_b else 0
+                                p00_b <- tab_b[1,1]/N_b
+                                p1p_b <- row_b[2]
+                                p0p_b <- row_b[1]
+                                pp1_b <- col_b[2]
+                                pp0_b <- col_b[1]
+
+                                t1_21 <- (p11_b - p1p_b*pp1_b) / (1 - p1p_b)
+                                t2_21 <- (p00_b - p0p_b*pp0_b) / (1 - p0p_b)
+                                boot_k21[b] <- t1_21 + t2_21
+
+                                t1_12 <- (p11_b - p1p_b*pp1_b) / (1 - pp1_b)
+                                t2_12 <- (p00_b - p0p_b*pp0_b) / (1 - pp0_b)
+                                boot_k12[b] <- t1_12 + t2_12
                             } else {
                                 boot_k21[b] <- NA
                                 boot_k12[b] <- NA
@@ -708,10 +692,10 @@
                         ci12_lo <- quantile(boot_k12, 0.025, na.rm=TRUE)
                         ci12_hi <- quantile(boot_k12, 0.975, na.rm=TRUE)
 
-                        kappa_cond21_text <- paste0("Conditional kappa (", method1_name, " → ", method2_name, ") = ",
+                        kappa_cond21_text <- paste0("Cond. kappa (", method1_name, " → ", method2_name, ") = ",
                                                     round(k21_point,3),
                                                     " (95% CI: ", round(ci21_lo,3), " \u2013 ", round(ci21_hi,3), ")")
-                        kappa_cond12_text <- paste0("Conditional kappa (", method2_name, " → ", method1_name, ") = ",
+                        kappa_cond12_text <- paste0("Cond. kappa (", method2_name, " → ", method1_name, ") = ",
                                                     round(k12_point,3),
                                                     " (95% CI: ", round(ci12_lo,3), " \u2013 ", round(ci12_hi,3), ")")
                     }
@@ -797,14 +781,12 @@
                     prop_pval: fullData.prop_pval
                 };
 
-                // Store kappa texts (cohen, cond21, cond12)
                 kappaTexts = {
                     cohen: (fullData.kappa_cohen || ''),
                     light1: (fullData.kappa_light1 || ''),
                     light2: (fullData.kappa_light2 || '')
                 };
 
-                // ICC (unchanged)
                 showProgress(75, 'Computing ICC…');
                 const iccRaw = await webR.evalR(`
                     library(data.table)
